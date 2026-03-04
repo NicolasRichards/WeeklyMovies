@@ -1,0 +1,93 @@
+import Foundation
+
+class TMDbService {
+    static let shared = TMDbService()
+    private let baseURL = "https://api.themoviedb.org/3"
+
+    private var apiKey: String {
+        KeychainHelper.shared.getAPIKey() ?? ""
+    }
+
+    // MARK: - Weekly Releases
+
+    func fetchTheatricalReleases(weekStart: Date, weekEnd: Date) async throws -> [TMDbMovieResult] {
+        var components = URLComponents(string: "\(baseURL)/discover/movie")!
+        components.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey),
+            URLQueryItem(name: "region", value: "US"),
+            URLQueryItem(name: "primary_release_date.gte", value: dateString(from: weekStart)),
+            URLQueryItem(name: "primary_release_date.lte", value: dateString(from: weekEnd)),
+            URLQueryItem(name: "with_release_type", value: "2|3"),
+            URLQueryItem(name: "sort_by", value: "popularity.desc")
+        ]
+        let response: TMDbMovieListResponse = try await fetch(url: components.url!)
+        return response.results
+    }
+
+    func fetchStreamingReleases(weekStart: Date, weekEnd: Date) async throws -> [TMDbMovieResult] {
+        var components = URLComponents(string: "\(baseURL)/discover/movie")!
+        components.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey),
+            URLQueryItem(name: "watch_region", value: "US"),
+            URLQueryItem(name: "primary_release_date.gte", value: dateString(from: weekStart)),
+            URLQueryItem(name: "primary_release_date.lte", value: dateString(from: weekEnd)),
+            URLQueryItem(name: "with_release_type", value: "4"),
+            URLQueryItem(name: "sort_by", value: "popularity.desc")
+        ]
+        let response: TMDbMovieListResponse = try await fetch(url: components.url!)
+        return response.results
+    }
+
+    // MARK: - Movie Details
+
+    func fetchMovieDetails(id: Int) async throws -> TMDbMovieDetails {
+        var components = URLComponents(string: "\(baseURL)/movie/\(id)")!
+        components.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey),
+            URLQueryItem(name: "append_to_response", value: "videos,credits,watch/providers,reviews,external_ids")
+        ]
+        return try await fetch(url: components.url!)
+    }
+
+    // MARK: - Private
+
+    private func fetch<T: Decodable>(url: URL) async throws -> T {
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let http = response as? HTTPURLResponse else {
+            throw TMDbError.invalidResponse
+        }
+        switch http.statusCode {
+        case 200:
+            break
+        case 401:
+            throw TMDbError.unauthorized
+        case 429:
+            throw TMDbError.rateLimited
+        default:
+            throw TMDbError.httpError(http.statusCode)
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func dateString(from date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+}
+
+enum TMDbError: LocalizedError {
+    case invalidResponse
+    case unauthorized
+    case rateLimited
+    case httpError(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse: return "Invalid server response."
+        case .unauthorized: return "Invalid API key. Please check your TMDb API key in settings."
+        case .rateLimited: return "Too many requests. Please wait a moment and try again."
+        case .httpError(let code): return "Server error (\(code))."
+        }
+    }
+}
