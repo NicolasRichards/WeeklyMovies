@@ -142,7 +142,11 @@ struct TMDbMovieDetails: Codable {
     func toMovie(isTheatrical: Bool, countryCode: String) -> Movie {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
-        let date = dateFormatter.date(from: releaseDate) ?? Date()
+        // Use the country-specific release date so the displayed date matches
+        // the week being shown, not the earlier global premiere date.
+        let date = firstReleaseDate(for: countryCode)
+            ?? dateFormatter.date(from: releaseDate)
+            ?? Date()
 
         let director = credits?.crew.first(where: { $0.job == "Director" })?.name
         let cast = Array(
