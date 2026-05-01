@@ -130,7 +130,11 @@ class MoviesViewModel {
                 //    release_dates data is sparse — it prevents old movies with a
                 //    new re-release event this week from slipping through.
                 let firstReleaseThisWeek = batchDetails.filter { (details, _) in
-                    guard let first = details.firstReleaseDate(for: countryCode),
+                    // Prefer country-specific release date; fall back to global primary
+                    // release date for movies whose release_dates entry isn't populated yet.
+                    let releaseDate = details.firstReleaseDate(for: countryCode)
+                        ?? primaryDateFmt.date(from: details.releaseDate)
+                    guard let first = releaseDate,
                           first >= dates.start && first < weekEnd1Day else { return false }
                     if let globalDate = primaryDateFmt.date(from: details.releaseDate),
                        globalDate < oneMonthAgo { return false }
@@ -145,7 +149,9 @@ class MoviesViewModel {
                 }
             }
 
-            let sorted = detailedMovies.sorted { $0.voteAverage > $1.voteAverage }
+            let sorted = detailedMovies
+                .filter { $0.imdbID != nil }
+                .sorted { $0.voteAverage > $1.voteAverage }
             movies = sorted
             CacheService.shared.saveMovies(sorted, forWeekOffset: currentWeekOffset)
 
