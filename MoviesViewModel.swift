@@ -133,12 +133,13 @@ class MoviesViewModel {
                     // Drop shorts (≤ 40 min runtime, matching IMDB's definition).
                     // A nil runtime means TMDb doesn't have it yet — let it through.
                     if let runtime = details.runtime, runtime <= 40 { return false }
-                    // Prefer country-specific release date; fall back to global primary
-                    // release date for movies whose release_dates entry isn't populated yet.
-                    let releaseDate = details.firstReleaseDate(for: countryCode)
-                        ?? primaryDateFmt.date(from: details.releaseDate)
-                    guard let first = releaseDate,
-                          first >= dates.start && first < weekEnd1Day else { return false }
+                    // Accept if ANY release in the country falls within the week —
+                    // using the minimum date would drop movies that had a premiere
+                    // the week before their wide theatrical release.
+                    // Fall back to global primary release date if no country entry exists.
+                    let inWindow = details.hasRelease(for: countryCode, from: dates.start, to: weekEnd1Day)
+                        || primaryDateFmt.date(from: details.releaseDate).map { $0 >= dates.start && $0 < weekEnd1Day } ?? false
+                    guard inWindow else { return false }
                     if let globalDate = primaryDateFmt.date(from: details.releaseDate),
                        globalDate < oneMonthAgo { return false }
                     return true

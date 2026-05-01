@@ -124,17 +124,27 @@ struct TMDbMovieDetails: Codable {
         case releaseDates = "release_dates"
     }
 
-    /// Returns the earliest release date of any type for the given country, or nil if unavailable.
-    func firstReleaseDate(for countryCode: String) -> Date? {
+    /// Returns true if the movie has any release in the given country within [start, end).
+    func hasRelease(for countryCode: String, from start: Date, to end: Date) -> Bool {
         // TMDb timestamps look like "2015-12-25T00:00:00.000Z" — fractional seconds
         // are NOT handled by ISO8601DateFormatter's default options, so we add them.
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        // Fallback for entries that omit fractional seconds
         let fallback = ISO8601DateFormatter()
         fallback.formatOptions = [.withInternetDateTime]
+        func parse(_ s: String) -> Date? { isoFormatter.date(from: s) ?? fallback.date(from: s) }
 
+        guard let entries = releaseDates?.results
+            .first(where: { $0.iso31661 == countryCode })?.releaseDates else { return false }
+        return entries.compactMap { parse($0.releaseDate) }.contains { $0 >= start && $0 < end }
+    }
+
+    /// Returns the earliest release date of any type for the given country (used for display).
+    func firstReleaseDate(for countryCode: String) -> Date? {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fallback = ISO8601DateFormatter()
+        fallback.formatOptions = [.withInternetDateTime]
         func parse(_ s: String) -> Date? { isoFormatter.date(from: s) ?? fallback.date(from: s) }
 
         return releaseDates?.results
