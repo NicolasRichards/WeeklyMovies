@@ -145,7 +145,8 @@ class MoviesViewModel {
                     return true
                 }
                 detailedMovies.append(contentsOf: firstReleaseThisWeek.map {
-                    $0.0.toMovie(isTheatrical: $0.1, countryCode: countryCode)
+                    $0.0.toMovie(isTheatrical: $0.1, countryCode: countryCode,
+                                 weekStart: dates.start, weekEnd: weekEnd1Day)
                 })
 
                 if allEntries.count > 15 {

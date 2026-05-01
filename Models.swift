@@ -139,8 +139,8 @@ struct TMDbMovieDetails: Codable {
         return entries.compactMap { parse($0.releaseDate) }.contains { $0 >= start && $0 < end }
     }
 
-    /// Returns the earliest release date of any type for the given country (used for display).
-    func firstReleaseDate(for countryCode: String) -> Date? {
+    /// Returns the earliest release date within [start, end) for the given country.
+    func releaseDate(for countryCode: String, in start: Date, to end: Date) -> Date? {
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let fallback = ISO8601DateFormatter()
@@ -151,15 +151,16 @@ struct TMDbMovieDetails: Codable {
             .first(where: { $0.iso31661 == countryCode })?
             .releaseDates
             .compactMap { parse($0.releaseDate) }
+            .filter { $0 >= start && $0 < end }
             .min()
     }
 
-    func toMovie(isTheatrical: Bool, countryCode: String) -> Movie {
+    func toMovie(isTheatrical: Bool, countryCode: String, weekStart: Date, weekEnd: Date) -> Movie {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
-        // Use the country-specific release date so the displayed date matches
-        // the week being shown, not the earlier global premiere date.
-        let date = firstReleaseDate(for: countryCode)
+        // Use the country release date that falls within the displayed week so the
+        // date shown matches when the movie opens locally, not an earlier foreign premiere.
+        let date = releaseDate(for: countryCode, in: weekStart, to: weekEnd)
             ?? dateFormatter.date(from: releaseDate)
             ?? Date()
 
