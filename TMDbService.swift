@@ -16,7 +16,7 @@ class TMDbService {
             URLQueryItem(name: "region", value: "US"),
             URLQueryItem(name: "primary_release_date.gte", value: dateString(from: weekStart)),
             URLQueryItem(name: "primary_release_date.lte", value: dateString(from: weekEnd)),
-            URLQueryItem(name: "with_release_type", value: "2|3"),
+            URLQueryItem(name: "with_release_type", value: "1|2|3"),
             URLQueryItem(name: "sort_by", value: "popularity.desc")
         ])
     }
@@ -24,7 +24,7 @@ class TMDbService {
     func fetchStreamingReleases(weekStart: Date, weekEnd: Date) async throws -> [TMDbMovieResult] {
         try await fetchAllPages(baseItems: [
             URLQueryItem(name: "api_key", value: apiKey),
-            URLQueryItem(name: "watch_region", value: "US"),
+            URLQueryItem(name: "region", value: "US"),
             URLQueryItem(name: "primary_release_date.gte", value: dateString(from: weekStart)),
             URLQueryItem(name: "primary_release_date.lte", value: dateString(from: weekEnd)),
             URLQueryItem(name: "with_release_type", value: "4"),
