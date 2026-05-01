@@ -152,9 +152,7 @@ class MoviesViewModel {
                 }
             }
 
-            let sorted = detailedMovies
-                .filter { $0.imdbID != nil }
-                .sorted { $0.voteAverage > $1.voteAverage }
+            let sorted = detailedMovies.sorted { $0.voteAverage > $1.voteAverage }
             movies = sorted
             CacheService.shared.saveMovies(sorted, forWeekOffset: currentWeekOffset)
 

@@ -24,8 +24,13 @@ struct Movie: Identifiable, Codable, Equatable {
     }
 
     var imdbURL: URL? {
-        guard let id = imdbID, !id.isEmpty else { return nil }
-        return URL(string: "https://www.imdb.com/title/\(id)/")
+        if let id = imdbID, !id.isEmpty {
+            return URL(string: "https://www.imdb.com/title/\(id)/")
+        }
+        // TMDb sometimes hasn't linked the IMDB ID yet for new releases —
+        // fall back to a title search so the link always works.
+        let query = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return URL(string: "https://www.imdb.com/find?q=\(query)&s=tt&ttype=ft")
     }
 
     var trailerURL: URL? {
