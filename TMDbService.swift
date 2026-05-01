@@ -11,31 +11,42 @@ class TMDbService {
     // MARK: - Weekly Releases
 
     func fetchTheatricalReleases(weekStart: Date, weekEnd: Date) async throws -> [TMDbMovieResult] {
-        var components = URLComponents(string: "\(baseURL)/discover/movie")!
-        components.queryItems = [
+        try await fetchAllPages(baseItems: [
             URLQueryItem(name: "api_key", value: apiKey),
             URLQueryItem(name: "region", value: "US"),
             URLQueryItem(name: "primary_release_date.gte", value: dateString(from: weekStart)),
             URLQueryItem(name: "primary_release_date.lte", value: dateString(from: weekEnd)),
             URLQueryItem(name: "with_release_type", value: "2|3"),
             URLQueryItem(name: "sort_by", value: "popularity.desc")
-        ]
-        let response: TMDbMovieListResponse = try await fetch(url: components.url!)
-        return response.results
+        ])
     }
 
     func fetchStreamingReleases(weekStart: Date, weekEnd: Date) async throws -> [TMDbMovieResult] {
-        var components = URLComponents(string: "\(baseURL)/discover/movie")!
-        components.queryItems = [
+        try await fetchAllPages(baseItems: [
             URLQueryItem(name: "api_key", value: apiKey),
             URLQueryItem(name: "watch_region", value: "US"),
             URLQueryItem(name: "primary_release_date.gte", value: dateString(from: weekStart)),
             URLQueryItem(name: "primary_release_date.lte", value: dateString(from: weekEnd)),
             URLQueryItem(name: "with_release_type", value: "4"),
             URLQueryItem(name: "sort_by", value: "popularity.desc")
-        ]
-        let response: TMDbMovieListResponse = try await fetch(url: components.url!)
-        return response.results
+        ])
+    }
+
+    private func fetchAllPages(baseItems: [URLQueryItem]) async throws -> [TMDbMovieResult] {
+        var all: [TMDbMovieResult] = []
+        var page = 1
+        var totalPages = 1
+        repeat {
+            var items = baseItems
+            items.append(URLQueryItem(name: "page", value: "\(page)"))
+            var components = URLComponents(string: "\(baseURL)/discover/movie")!
+            components.queryItems = items
+            let response: TMDbMovieListResponse = try await fetch(url: components.url!)
+            all.append(contentsOf: response.results)
+            totalPages = response.totalPages
+            page += 1
+        } while page <= totalPages
+        return all
     }
 
     // MARK: - Movie Details

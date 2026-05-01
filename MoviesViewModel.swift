@@ -90,7 +90,7 @@ class MoviesViewModel: ObservableObject {
                 }
             }
 
-            let sorted = detailedMovies.sorted { $0.voteCount > $1.voteCount }
+            let sorted = detailedMovies.sorted { $0.voteAverage > $1.voteAverage }
             movies = sorted
             CacheService.shared.saveMovies(sorted, forWeekOffset: currentWeekOffset)
 

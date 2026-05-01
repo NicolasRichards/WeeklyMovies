@@ -43,7 +43,7 @@ struct ContentView: View {
             if !KeychainHelper.shared.hasAPIKey {
                 showingAPIKeySetup = true
             } else {
-                await viewModel.loadMovies()
+                await viewModel.loadMovies(forceRefresh: true)
             }
         }
     }
