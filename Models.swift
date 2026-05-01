@@ -100,6 +100,7 @@ struct TMDbMovieDetails: Codable {
     let overview: String
     let voteAverage: Double
     let voteCount: Int
+    let runtime: Int?
     let externalIds: TMDbExternalIds?
     let credits: TMDbCredits?
     let videos: TMDbVideos?
@@ -108,7 +109,7 @@ struct TMDbMovieDetails: Codable {
     let releaseDates: TMDbReleaseDatesResponse?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, overview, credits, videos, reviews
+        case id, title, overview, credits, videos, reviews, runtime
         case releaseDate = "release_date"
         case posterPath = "poster_path"
         case voteAverage = "vote_average"

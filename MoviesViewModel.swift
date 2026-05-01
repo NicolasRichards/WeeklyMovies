@@ -130,6 +130,9 @@ class MoviesViewModel {
                 //    release_dates data is sparse — it prevents old movies with a
                 //    new re-release event this week from slipping through.
                 let firstReleaseThisWeek = batchDetails.filter { (details, _) in
+                    // Drop shorts (≤ 40 min runtime, matching IMDB's definition).
+                    // A nil runtime means TMDb doesn't have it yet — let it through.
+                    if let runtime = details.runtime, runtime <= 40 { return false }
                     // Prefer country-specific release date; fall back to global primary
                     // release date for movies whose release_dates entry isn't populated yet.
                     let releaseDate = details.firstReleaseDate(for: countryCode)
