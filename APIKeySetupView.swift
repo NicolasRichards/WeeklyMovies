@@ -36,8 +36,10 @@ struct APIKeySetupView: View {
                     SecureField("32-character API key", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
+                        #if os(iOS)
                         .textInputAutocapitalization(.never)
                         .submitLabel(.done)
+                        #endif
                         .onSubmit { trySave() }
 
                     Text("Find your key at themoviedb.org → Settings → API")
@@ -68,10 +70,12 @@ struct APIKeySetupView: View {
 
                 Spacer()
             }
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 if KeychainHelper.shared.hasAPIKey {
-                    ToolbarItem(placement: .navigationBarLeading) {
+                    ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { isPresented = false }
                     }
                 }

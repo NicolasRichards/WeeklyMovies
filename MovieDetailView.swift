@@ -39,7 +39,9 @@ struct MovieDetailView: View {
                 .padding()
             }
         }
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     // MARK: - Sections

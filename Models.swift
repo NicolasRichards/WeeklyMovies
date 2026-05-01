@@ -105,6 +105,7 @@ struct TMDbMovieDetails: Codable {
     let videos: TMDbVideos?
     let reviews: TMDbReviewsResponse?
     let watchProviders: TMDbWatchProvidersResponse?
+    let releaseDates: TMDbReleaseDatesResponse?
 
     enum CodingKeys: String, CodingKey {
         case id, title, overview, credits, videos, reviews
@@ -114,9 +115,30 @@ struct TMDbMovieDetails: Codable {
         case voteCount = "vote_count"
         case externalIds = "external_ids"
         case watchProviders = "watch/providers"
+        case releaseDates = "release_dates"
     }
 
-    func toMovie(isTheatrical: Bool) -> Movie {
+    /// Returns the earliest release date of any type for the given country, or nil if unavailable.
+    func firstReleaseDate(for countryCode: String) -> Date? {
+        // TMDb timestamps look like "2015-12-25T00:00:00.000Z" — fractional seconds
+        // are NOT handled by ISO8601DateFormatter's default options, so we add them.
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        // Fallback for entries that omit fractional seconds
+        let fallback = ISO8601DateFormatter()
+        fallback.formatOptions = [.withInternetDateTime]
+
+        func parse(_ s: String) -> Date? { isoFormatter.date(from: s) ?? fallback.date(from: s) }
+
+        return releaseDates?.results
+            .first(where: { $0.iso31661 == countryCode })?
+            .releaseDates
+            .compactMap { parse($0.releaseDate) }
+            .min()
+    }
+
+    func toMovie(isTheatrical: Bool, countryCode: String) -> Movie {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let date = dateFormatter.date(from: releaseDate) ?? Date()
@@ -130,12 +152,13 @@ struct TMDbMovieDetails: Codable {
         )
         let trailerKey = videos?.results.first(where: { $0.isYouTubeTrailer })?.key
 
-        let providers: [StreamingProvider] = (watchProviders?.results?.us?.flatrate ?? []).map {
+        let countryProviders = watchProviders?.results?[countryCode]
+        let providers: [StreamingProvider] = (countryProviders?.flatrate ?? []).map {
             StreamingProvider(
                 id: $0.providerId,
                 name: $0.providerName,
                 logoPath: $0.logoPath,
-                link: watchProviders?.results?.us?.link
+                link: countryProviders?.link
             )
         }
 
@@ -227,16 +250,38 @@ struct TMDbAuthorDetails: Codable {
     let rating: Double?
 }
 
+// MARK: - Release Dates (used to find first-ever US release)
+
+struct TMDbReleaseDatesResponse: Codable {
+    let results: [TMDbCountryRelease]
+}
+
+struct TMDbCountryRelease: Codable {
+    let iso31661: String
+    let releaseDates: [TMDbReleaseDateEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case iso31661 = "iso_3166_1"
+        case releaseDates = "release_dates"
+    }
+}
+
+struct TMDbReleaseDateEntry: Codable {
+    let releaseDate: String  // ISO 8601 e.g. "2026-02-28T00:00:00.000Z"
+    let type: Int            // 1=Premiere 2=Limited 3=Theatrical 4=Digital 5=Physical 6=TV
+
+    enum CodingKeys: String, CodingKey {
+        case releaseDate = "release_date"
+        case type
+    }
+}
+
 struct TMDbWatchProvidersResponse: Codable {
-    let results: TMDbWatchProviderCountries?
+    // Keys are ISO-3166-1 alpha-2 country codes e.g. "US", "GB", "FR"
+    let results: [String: TMDbCountryProviders]?
 }
 
-struct TMDbWatchProviderCountries: Codable {
-    let us: TMDbUSProviders?
-    enum CodingKeys: String, CodingKey { case us = "US" }
-}
-
-struct TMDbUSProviders: Codable {
+struct TMDbCountryProviders: Codable {
     let link: String?
     let flatrate: [TMDbProvider]?
 }

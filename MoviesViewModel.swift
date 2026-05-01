@@ -1,23 +1,46 @@
 import Foundation
 import SwiftUI
+import Observation
 
+@Observable
 @MainActor
-class MoviesViewModel: ObservableObject {
-    @Published var movies: [Movie] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var currentWeekOffset = 0
-    @Published var filter: MovieFilter = .all
+class MoviesViewModel {
+    var movies: [Movie] = []
+    var isLoading = false
+    var errorMessage: String?
+    var currentWeekOffset = 0
+    var filter: MovieFilter = .theatrical
+    var countryCode: String {
+        didSet { UserDefaults.standard.set(countryCode, forKey: "selectedCountryCode") }
+    }
+
+    init() {
+        countryCode = UserDefaults.standard.string(forKey: "selectedCountryCode")
+                      ?? Locale.current.region?.identifier
+                      ?? "US"
+    }
+
+    /// Flag emoji for the current country code.
+    var countryFlag: String {
+        countryCode.uppercased().unicodeScalars
+            .compactMap { UnicodeScalar(127397 + $0.value) }
+            .reduce("") { $0 + String($1) }
+    }
+
+    /// Switch to a new country, wipe the cache, and reload.
+    func setCountry(_ code: String) {
+        countryCode = code
+        CacheService.shared.clearCache()
+        Task { await loadMovies(forceRefresh: true) }
+    }
 
     enum MovieFilter: String, CaseIterable {
-        case all = "All"
         case theatrical = "Theater"
         case streaming = "Streaming"
     }
 
     var filteredMovies: [Movie] {
         switch filter {
-        case .all:        return movies
         case .theatrical: return movies.filter { $0.isTheatrical }
         case .streaming:  return movies.filter { !$0.streamingProviders.isEmpty }
         }
@@ -54,9 +77,9 @@ class MoviesViewModel: ObservableObject {
 
         do {
             async let theatrical = TMDbService.shared.fetchTheatricalReleases(
-                weekStart: dates.start, weekEnd: dates.end)
+                weekStart: dates.start, weekEnd: dates.end, countryCode: countryCode)
             async let streaming = TMDbService.shared.fetchStreamingReleases(
-                weekStart: dates.start, weekEnd: dates.end)
+                weekStart: dates.start, weekEnd: dates.end, countryCode: countryCode)
 
             let (theatricalResults, streamingResults) = try await (theatrical, streaming)
 
@@ -68,22 +91,54 @@ class MoviesViewModel: ObservableObject {
             let allEntries = Array(movieMap.values)
             var detailedMovies: [Movie] = []
 
-            // Fetch details in batches to stay under the 40 req/10s rate limit
+            // Pre-compute date bounds used in the per-batch filter.
+            let weekEnd1Day = Calendar.current.date(byAdding: .day, value: 1, to: dates.end)!
+            // Secondary staleness guard: TMDb's release_dates data is incomplete
+            // for smaller markets, so old movies can appear if their only recorded
+            // country entry is a recent re-release. Requiring the movie's global
+            // primary release to be within the past month blocks those false positives
+            // while still allowing legitimate delayed international rollouts.
+            let oneMonthAgo = Calendar.current.date(byAdding: .month, value: -1, to: Date())!
+            let primaryDateFmt: DateFormatter = {
+                let f = DateFormatter()
+                f.dateFormat = "yyyy-MM-dd"
+                return f
+            }()
+
+            // Fetch details in batches to stay under the 40 req/10s rate limit.
+            // Task group returns raw TMDbMovieDetails; toMovie() is called after
+            // the group completes so it runs on the main actor (Swift 6 safe).
             for batch in allEntries.chunked(into: 15) {
-                let batchMovies = try await withThrowingTaskGroup(of: Movie?.self) { group in
+                let batchDetails = try await withThrowingTaskGroup(
+                    of: (TMDbMovieDetails, Bool).self
+                ) { group in
                     for (result, isTheatrical) in batch {
                         group.addTask {
                             let details = try await TMDbService.shared.fetchMovieDetails(id: result.id)
-                            return details.toMovie(isTheatrical: isTheatrical)
+                            return (details, isTheatrical)
                         }
                     }
-                    var results: [Movie] = []
-                    for try await movie in group {
-                        if let movie { results.append(movie) }
-                    }
-                    return results
+                    var pairs: [(TMDbMovieDetails, Bool)] = []
+                    for try await pair in group { pairs.append(pair) }
+                    return pairs
                 }
-                detailedMovies.append(contentsOf: batchMovies)
+                // Two-pass filter:
+                // 1. The movie's FIRST-EVER release in the selected country must
+                //    fall within the displayed week.
+                // 2. The movie's global primary release must be within the past month.
+                //    This is a safety net for markets where TMDb's historical
+                //    release_dates data is sparse — it prevents old movies with a
+                //    new re-release event this week from slipping through.
+                let firstReleaseThisWeek = batchDetails.filter { (details, _) in
+                    guard let first = details.firstReleaseDate(for: countryCode),
+                          first >= dates.start && first < weekEnd1Day else { return false }
+                    if let globalDate = primaryDateFmt.date(from: details.releaseDate),
+                       globalDate < oneMonthAgo { return false }
+                    return true
+                }
+                detailedMovies.append(contentsOf: firstReleaseThisWeek.map {
+                    $0.0.toMovie(isTheatrical: $0.1, countryCode: countryCode)
+                })
 
                 if allEntries.count > 15 {
                     try await Task.sleep(nanoseconds: 500_000_000) // 0.5s between batches

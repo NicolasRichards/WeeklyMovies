@@ -10,23 +10,24 @@ class TMDbService {
 
     // MARK: - Weekly Releases
 
-    func fetchTheatricalReleases(weekStart: Date, weekEnd: Date) async throws -> [TMDbMovieResult] {
+    func fetchTheatricalReleases(weekStart: Date, weekEnd: Date, countryCode: String) async throws -> [TMDbMovieResult] {
         try await fetchAllPages(baseItems: [
             URLQueryItem(name: "api_key", value: apiKey),
-            URLQueryItem(name: "region", value: "US"),
-            URLQueryItem(name: "primary_release_date.gte", value: dateString(from: weekStart)),
-            URLQueryItem(name: "primary_release_date.lte", value: dateString(from: weekEnd)),
+            URLQueryItem(name: "region", value: countryCode),
+            URLQueryItem(name: "release_date.gte", value: dateString(from: weekStart)),
+            URLQueryItem(name: "release_date.lte", value: dateString(from: weekEnd)),
             URLQueryItem(name: "with_release_type", value: "1|2|3"),
             URLQueryItem(name: "sort_by", value: "popularity.desc")
         ])
     }
 
-    func fetchStreamingReleases(weekStart: Date, weekEnd: Date) async throws -> [TMDbMovieResult] {
+    func fetchStreamingReleases(weekStart: Date, weekEnd: Date, countryCode: String) async throws -> [TMDbMovieResult] {
         try await fetchAllPages(baseItems: [
             URLQueryItem(name: "api_key", value: apiKey),
-            URLQueryItem(name: "region", value: "US"),
-            URLQueryItem(name: "primary_release_date.gte", value: dateString(from: weekStart)),
-            URLQueryItem(name: "primary_release_date.lte", value: dateString(from: weekEnd)),
+            URLQueryItem(name: "region", value: countryCode),
+            URLQueryItem(name: "watch_region", value: countryCode),
+            URLQueryItem(name: "release_date.gte", value: dateString(from: weekStart)),
+            URLQueryItem(name: "release_date.lte", value: dateString(from: weekEnd)),
             URLQueryItem(name: "with_release_type", value: "4"),
             URLQueryItem(name: "sort_by", value: "popularity.desc")
         ])
@@ -55,7 +56,7 @@ class TMDbService {
         var components = URLComponents(string: "\(baseURL)/movie/\(id)")!
         components.queryItems = [
             URLQueryItem(name: "api_key", value: apiKey),
-            URLQueryItem(name: "append_to_response", value: "videos,credits,watch/providers,reviews,external_ids")
+            URLQueryItem(name: "append_to_response", value: "videos,credits,watch/providers,reviews,external_ids,release_dates")
         ]
         return try await fetch(url: components.url!)
     }

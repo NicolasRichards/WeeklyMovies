@@ -1,8 +1,9 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var viewModel = MoviesViewModel()
+    @State private var viewModel = MoviesViewModel()
     @State private var showingAPIKeySetup = false
+    @State private var showingCountryPicker = false
 
     var body: some View {
         NavigationStack {
@@ -17,7 +18,7 @@ struct ContentView: View {
             }
             .navigationTitle("Weekly Movies")
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .primaryAction) {
                     Button {
                         Task { await viewModel.loadMovies(forceRefresh: true) }
                     } label: {
@@ -25,7 +26,19 @@ struct ContentView: View {
                     }
                     .disabled(viewModel.isLoading)
                 }
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        showingCountryPicker = true
+                    } label: {
+                        Text("\(viewModel.countryFlag) \(viewModel.countryCode)")
+                            .font(.subheadline)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.regularMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                ToolbarItem(placement: .automatic) {
                     Button {
                         showingAPIKeySetup = true
                     } label: {
@@ -38,6 +51,9 @@ struct ContentView: View {
             APIKeySetupView(isPresented: $showingAPIKeySetup) {
                 Task { await viewModel.loadMovies(forceRefresh: true) }
             }
+        }
+        .sheet(isPresented: $showingCountryPicker) {
+            CountryPickerView(viewModel: viewModel)
         }
         .task {
             if !KeychainHelper.shared.hasAPIKey {
