@@ -115,6 +115,15 @@ struct ContentView: View {
             }
             .listRowBackground(Color.clear)
 
+            // Wide-release toggle (theatrical only)
+            if viewModel.filter == .theatrical {
+                Section {
+                    Toggle("Wide releases only", isOn: $viewModel.wideOnly)
+                        .font(.subheadline)
+                }
+                .listRowBackground(Color.clear)
+            }
+
             // Movie cards
             if viewModel.filteredMovies.isEmpty && !viewModel.isLoading {
                 Section {

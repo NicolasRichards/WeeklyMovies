@@ -12,6 +12,7 @@ struct Movie: Identifiable, Codable, Equatable {
     let voteCount: Int
     var imdbID: String?
     var isTheatrical: Bool
+    var isWideRelease: Bool
     var streamingProviders: [StreamingProvider]
     var reviews: [Review]
     var director: String?
@@ -124,6 +125,19 @@ struct TMDbMovieDetails: Codable {
         case releaseDates = "release_dates"
     }
 
+    /// Returns true if the movie has a wide (type 3) release in the given country within [start, end).
+    func hasWideRelease(for countryCode: String, from start: Date, to end: Date) -> Bool {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fallback = ISO8601DateFormatter()
+        fallback.formatOptions = [.withInternetDateTime]
+        func parse(_ s: String) -> Date? { isoFormatter.date(from: s) ?? fallback.date(from: s) }
+
+        guard let entries = releaseDates?.results
+            .first(where: { $0.iso31661 == countryCode })?.releaseDates else { return false }
+        return entries.contains { $0.type == 3 && parse($0.releaseDate).map { $0 >= start && $0 < end } ?? false }
+    }
+
     /// Returns true if the movie has any release in the given country within [start, end).
     func hasRelease(for countryCode: String, from start: Date, to end: Date) -> Bool {
         // TMDb timestamps look like "2015-12-25T00:00:00.000Z" — fractional seconds
@@ -155,7 +169,7 @@ struct TMDbMovieDetails: Codable {
             .min()
     }
 
-    func toMovie(isTheatrical: Bool, countryCode: String, weekStart: Date, weekEnd: Date) -> Movie {
+    func toMovie(isTheatrical: Bool, isWideRelease: Bool, countryCode: String, weekStart: Date, weekEnd: Date) -> Movie {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         // Use the country release date that falls within the displayed week so the
@@ -205,6 +219,7 @@ struct TMDbMovieDetails: Codable {
             voteCount: voteCount,
             imdbID: externalIds?.imdbId,
             isTheatrical: isTheatrical,
+            isWideRelease: isWideRelease,
             streamingProviders: providers,
             reviews: movieReviews,
             director: director,

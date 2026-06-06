@@ -10,6 +10,9 @@ class MoviesViewModel {
     var errorMessage: String?
     var currentWeekOffset = 0
     var filter: MovieFilter = .theatrical
+    var wideOnly: Bool = UserDefaults.standard.object(forKey: "wideOnly") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(wideOnly, forKey: "wideOnly") }
+    }
     var countryCode: String {
         didSet { UserDefaults.standard.set(countryCode, forKey: "selectedCountryCode") }
     }
@@ -41,8 +44,10 @@ class MoviesViewModel {
 
     var filteredMovies: [Movie] {
         switch filter {
-        case .theatrical: return movies.filter { $0.isTheatrical }
-        case .streaming:  return movies.filter { !$0.streamingProviders.isEmpty }
+        case .theatrical:
+            return movies.filter { $0.isTheatrical && (!wideOnly || $0.isWideRelease) }
+        case .streaming:
+            return movies.filter { !$0.streamingProviders.isEmpty }
         }
     }
 
@@ -144,9 +149,14 @@ class MoviesViewModel {
                        globalDate < oneMonthAgo { return false }
                     return true
                 }
-                let newMovies = firstReleaseThisWeek.map {
-                    $0.0.toMovie(isTheatrical: $0.1, countryCode: countryCode,
-                                 weekStart: dates.start, weekEnd: weekEnd1Day)
+                let newMovies = firstReleaseThisWeek.map { (details, isTheatrical) in
+                    details.toMovie(
+                        isTheatrical: isTheatrical,
+                        isWideRelease: details.hasWideRelease(for: countryCode, from: dates.start, to: weekEnd1Day),
+                        countryCode: countryCode,
+                        weekStart: dates.start,
+                        weekEnd: weekEnd1Day
+                    )
                 }
                 // Append each batch immediately so the list populates progressively.
                 movies = (movies + newMovies).sorted { $0.voteCount > $1.voteCount }
