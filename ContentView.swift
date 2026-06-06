@@ -231,19 +231,26 @@ struct ContentView: View {
             Button { viewModel.goToPreviousWeek() } label: {
                 Image(systemName: "chevron.left").font(.title2).frame(width: 44, height: 44)
             }
+            .buttonStyle(.borderless)
+
             Spacer()
+
             VStack(spacing: 2) {
                 Text(viewModel.weekTitle).font(.headline)
                 Text(viewModel.weekDateRange).font(.caption).foregroundStyle(.secondary)
                 if viewModel.currentWeekOffset != 0 {
                     Button("Jump to Current Week") { viewModel.goToCurrentWeek() }
                         .font(.caption).padding(.top, 2)
+                        .buttonStyle(.borderless)
                 }
             }
+
             Spacer()
+
             Button { viewModel.goToNextWeek() } label: {
                 Image(systemName: "chevron.right").font(.title2).frame(width: 44, height: 44)
             }
+            .buttonStyle(.borderless)
             .disabled(!viewModel.canGoToNextWeek)
             .opacity(viewModel.canGoToNextWeek ? 1 : 0.3)
         }
