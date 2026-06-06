@@ -19,6 +19,7 @@ struct APIKeySetupView: View {
             ScrollView {
                 VStack(spacing: 32) {
                     headerSection
+                    alreadyHaveAccountSection
                     stepsSection
                     inputSection
                     actionSection
@@ -56,6 +57,21 @@ struct APIKeySetupView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
+    }
+
+    private var alreadyHaveAccountSection: some View {
+        HStack {
+            Text("Already have a TMDb account?")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Link("Get your API key →", destination: tmdbAPIURL)
+                .font(.subheadline)
+                .fontWeight(.medium)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity)
+        .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var stepsSection: some View {
