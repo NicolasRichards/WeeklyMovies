@@ -57,6 +57,8 @@ class MoviesViewModel {
         case -1: return "Last Week"
         case 1:  return "Next Week"
         case 2:  return "In Two Weeks"
+        case 3:  return "In Three Weeks"
+        case 4:  return "In Four Weeks"
         default: return "\(abs(currentWeekOffset)) Weeks Ago"
         }
     }
@@ -68,7 +70,7 @@ class MoviesViewModel {
         return "\(f.string(from: dates.start)) – \(f.string(from: dates.end))"
     }
 
-    var canGoToNextWeek: Bool { currentWeekOffset < 2 }
+    var canGoToNextWeek: Bool { currentWeekOffset < 4 }
 
     // MARK: - Actions
 
