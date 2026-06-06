@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var showingAPIKeySetup = false
     @State private var showingCountryPicker = false
     @State private var movieToRate: Movie?
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         TabView {
@@ -190,7 +191,7 @@ struct ContentView: View {
             let query = "\(movie.title) \(Calendar.current.component(.year, from: movie.releaseDate)) movie tickets"
             let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
             if let url = URL(string: "https://www.google.com/search?q=\(encoded)") {
-                UIApplication.shared.open(url)
+                openURL(url)
             }
         } label: {
             Label("Tickets", systemImage: "ticket.fill")
