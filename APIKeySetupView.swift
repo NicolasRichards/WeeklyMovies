@@ -71,7 +71,7 @@ struct APIKeySetupView: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
-        .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .background(.blue.opacity(0.2), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var stepsSection: some View {
