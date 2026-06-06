@@ -322,6 +322,15 @@ struct TMDbCountryProviders: Codable {
     let flatrate: [TMDbProvider]?
 }
 
+// Minimal response model used only to validate an API key.
+struct TMDbConfigurationResponse: Codable {
+    let images: TMDbConfigurationImages
+    struct TMDbConfigurationImages: Codable {
+        let baseUrl: String
+        enum CodingKeys: String, CodingKey { case baseUrl = "base_url" }
+    }
+}
+
 struct TMDbProvider: Codable {
     let providerId: Int
     let providerName: String

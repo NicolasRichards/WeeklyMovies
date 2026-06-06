@@ -8,6 +8,15 @@ class TMDbService {
         KeychainHelper.shared.getAPIKey() ?? ""
     }
 
+    // MARK: - Key Validation
+
+    /// Makes a lightweight API call to verify the key is accepted by TMDb.
+    func validateAPIKey(_ key: String) async throws {
+        var components = URLComponents(string: "\(baseURL)/configuration")!
+        components.queryItems = [URLQueryItem(name: "api_key", value: key)]
+        let _: TMDbConfigurationResponse = try await fetch(url: components.url!)
+    }
+
     // MARK: - Weekly Releases
 
     func fetchTheatricalReleases(weekStart: Date, weekEnd: Date, countryCode: String) async throws -> [TMDbMovieResult] {
