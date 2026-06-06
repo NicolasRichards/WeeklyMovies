@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MovieCardView: View {
     let movie: Movie
+    @State private var store = WatchlistStore.shared
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -44,6 +45,19 @@ struct MovieCardView: View {
         }
         .frame(width: 80, height: 120)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .topTrailing) {
+            if store.isInSeen(movie.id) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .background(Circle().fill(.white).padding(2))
+                    .padding(4)
+            } else if store.isInWatchlist(movie.id) {
+                Image(systemName: "bookmark.fill")
+                    .foregroundStyle(.blue)
+                    .background(Circle().fill(.white).padding(2))
+                    .padding(4)
+            }
+        }
     }
 
     private var ratingRow: some View {
