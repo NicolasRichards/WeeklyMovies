@@ -8,11 +8,27 @@ class WatchlistStore {
     var watchlist: [UserFilm] = []
     var seenList: [UserFilm] = []
 
-    private var saveURL: URL {
+    private let kvStore = NSUbiquitousKeyValueStore.default
+    private let watchlistKey = "wm_watchlist"
+    private let seenListKey = "wm_seenList"
+
+    // Local fallback (also used for migration of pre-iCloud data)
+    private var localURL: URL {
         URL.documentsDirectory.appendingPathComponent("userfilms.json")
     }
 
-    init() { load() }
+    init() {
+        load()
+        // Update when changes arrive from another device
+        NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: kvStore,
+            queue: .main
+        ) { [weak self] _ in
+            self?.load()
+        }
+        kvStore.synchronize()
+    }
 
     // MARK: - Actions
 
@@ -59,15 +75,36 @@ class WatchlistStore {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = try? Data(contentsOf: saveURL),
-              let saved = try? JSONDecoder().decode(SavedData.self, from: data) else { return }
-        watchlist = saved.watchlist
-        seenList = saved.seenList
+        // Migrate any existing local data to iCloud on first run
+        if kvStore.data(forKey: watchlistKey) == nil,
+           kvStore.data(forKey: seenListKey) == nil,
+           let data = try? Data(contentsOf: localURL),
+           let saved = try? JSONDecoder().decode(SavedData.self, from: data) {
+            watchlist = saved.watchlist
+            seenList = saved.seenList
+            save() // push local data up to iCloud
+            try? FileManager.default.removeItem(at: localURL)
+            return
+        }
+
+        if let data = kvStore.data(forKey: watchlistKey),
+           let list = try? JSONDecoder().decode([UserFilm].self, from: data) {
+            watchlist = list
+        }
+        if let data = kvStore.data(forKey: seenListKey),
+           let list = try? JSONDecoder().decode([UserFilm].self, from: data) {
+            seenList = list
+        }
     }
 
     private func save() {
-        let data = SavedData(watchlist: watchlist, seenList: seenList)
-        try? JSONEncoder().encode(data).write(to: saveURL)
+        if let data = try? JSONEncoder().encode(watchlist) {
+            kvStore.set(data, forKey: watchlistKey)
+        }
+        if let data = try? JSONEncoder().encode(seenList) {
+            kvStore.set(data, forKey: seenListKey)
+        }
+        kvStore.synchronize()
     }
 
     private struct SavedData: Codable {
