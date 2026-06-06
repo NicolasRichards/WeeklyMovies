@@ -55,6 +55,8 @@ class MoviesViewModel {
         switch currentWeekOffset {
         case 0:  return "This Week"
         case -1: return "Last Week"
+        case 1:  return "Next Week"
+        case 2:  return "In Two Weeks"
         default: return "\(abs(currentWeekOffset)) Weeks Ago"
         }
     }
@@ -66,7 +68,7 @@ class MoviesViewModel {
         return "\(f.string(from: dates.start)) – \(f.string(from: dates.end))"
     }
 
-    var canGoToNextWeek: Bool { currentWeekOffset < 0 }
+    var canGoToNextWeek: Bool { currentWeekOffset < 2 }
 
     // MARK: - Actions
 
@@ -145,7 +147,11 @@ class MoviesViewModel {
                     let inWindow = details.hasRelease(for: countryCode, from: dates.start, to: weekEnd1Day)
                         || primaryDateFmt.date(from: details.releaseDate).map { $0 >= dates.start && $0 < weekEnd1Day } ?? false
                     guard inWindow else { return false }
-                    if let globalDate = primaryDateFmt.date(from: details.releaseDate),
+                    // For past weeks, require the global primary release to be recent
+                    // to block old movies with sparse re-release data slipping through.
+                    // For current/future weeks, skip this guard so upcoming films appear.
+                    if currentWeekOffset < 0,
+                       let globalDate = primaryDateFmt.date(from: details.releaseDate),
                        globalDate < oneMonthAgo { return false }
                     return true
                 }
