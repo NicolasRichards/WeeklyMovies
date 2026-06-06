@@ -73,6 +73,7 @@ class MoviesViewModel {
 
         isLoading = true
         errorMessage = nil
+        movies = []
         let dates = weekDates(for: currentWeekOffset)
 
         do {
@@ -89,7 +90,6 @@ class MoviesViewModel {
             for m in theatricalResults { movieMap[m.id] = (m, true) }
 
             let allEntries = Array(movieMap.values)
-            var detailedMovies: [Movie] = []
 
             // Pre-compute date bounds used in the per-batch filter.
             let weekEnd1Day = Calendar.current.date(byAdding: .day, value: 1, to: dates.end)!
@@ -144,19 +144,19 @@ class MoviesViewModel {
                        globalDate < oneMonthAgo { return false }
                     return true
                 }
-                detailedMovies.append(contentsOf: firstReleaseThisWeek.map {
+                let newMovies = firstReleaseThisWeek.map {
                     $0.0.toMovie(isTheatrical: $0.1, countryCode: countryCode,
                                  weekStart: dates.start, weekEnd: weekEnd1Day)
-                })
+                }
+                // Append each batch immediately so the list populates progressively.
+                movies = (movies + newMovies).sorted { $0.voteCount > $1.voteCount }
 
                 if allEntries.count > 15 {
                     try await Task.sleep(nanoseconds: 500_000_000) // 0.5s between batches
                 }
             }
 
-            let sorted = detailedMovies.sorted { $0.voteCount > $1.voteCount }
-            movies = sorted
-            CacheService.shared.saveMovies(sorted, forWeekOffset: currentWeekOffset)
+            CacheService.shared.saveMovies(movies, forWeekOffset: currentWeekOffset)
 
         } catch {
             errorMessage = error.localizedDescription
