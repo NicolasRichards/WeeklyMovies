@@ -232,6 +232,8 @@ struct ContentView: View {
                 Image(systemName: "chevron.left").font(.title2).frame(width: 44, height: 44)
             }
             .buttonStyle(.borderless)
+            .disabled(!viewModel.canGoToPreviousWeek)
+            .opacity(viewModel.canGoToPreviousWeek ? 1 : 0.3)
 
             Spacer()
 

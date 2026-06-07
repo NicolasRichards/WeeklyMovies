@@ -71,6 +71,7 @@ class MoviesViewModel {
     }
 
     var canGoToNextWeek: Bool { currentWeekOffset < 4 }
+    var canGoToPreviousWeek: Bool { currentWeekOffset > -4 }
 
     // MARK: - Actions
 
