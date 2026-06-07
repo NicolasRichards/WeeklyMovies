@@ -38,6 +38,9 @@ struct APIKeySetupView: View {
                 }
             }
         }
+        #if os(iOS)
+        .presentationDetents([.large])
+        #endif
     }
 
     // MARK: - Sections
