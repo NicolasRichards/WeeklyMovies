@@ -20,6 +20,9 @@ struct ContentView: View {
             APIKeySetupView(isPresented: $showingAPIKeySetup) {
                 Task { await viewModel.loadMovies(forceRefresh: true) }
             }
+            // First run has no key yet — swiping the sheet away would leave an
+            // empty screen, so block interactive dismissal until a key is saved.
+            .interactiveDismissDisabled(!KeychainHelper.shared.hasAPIKey)
         }
         .sheet(isPresented: $showingCountryPicker) {
             CountryPickerView(viewModel: viewModel)

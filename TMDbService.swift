@@ -46,6 +46,10 @@ class TMDbService {
         var all: [TMDbMovieResult] = []
         var page = 1
         var totalPages = 1
+        // Cap pagination: results are sorted by popularity, so anything past
+        // page 10 (200 movies) is noise — and an unbounded loop could hammer
+        // the API for weeks with huge release counts.
+        let maxPages = 10
         repeat {
             var items = baseItems
             items.append(URLQueryItem(name: "page", value: "\(page)"))
@@ -53,7 +57,7 @@ class TMDbService {
             components.queryItems = items
             let response: TMDbMovieListResponse = try await fetch(url: components.url!)
             all.append(contentsOf: response.results)
-            totalPages = response.totalPages
+            totalPages = min(response.totalPages, maxPages)
             page += 1
         } while page <= totalPages
         return all
@@ -93,6 +97,9 @@ class TMDbService {
     private func dateString(from date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
+        // POSIX locale: API dates must not depend on the device's calendar
+        // setting (Buddhist/Japanese calendars shift the year).
+        f.locale = Locale(identifier: "en_US_POSIX")
         return f.string(from: date)
     }
 }

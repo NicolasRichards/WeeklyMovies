@@ -75,8 +75,17 @@ class MoviesViewModel {
 
     // MARK: - Actions
 
+    // Incremented on every load; in-flight loads bail out when a newer one starts,
+    // so rapid week navigation can't mix two weeks' results or poison the cache.
+    private var loadGeneration = 0
+
     func loadMovies(forceRefresh: Bool = false) async {
-        if !forceRefresh, let cached = CacheService.shared.loadMovies(forWeekOffset: currentWeekOffset) {
+        loadGeneration += 1
+        let generation = loadGeneration
+        let dates = weekDates(for: currentWeekOffset)
+        let pastWeek = currentWeekOffset < 0
+
+        if !forceRefresh, let cached = CacheService.shared.loadMovies(forWeekStart: dates.start) {
             movies = cached
             return
         }
@@ -84,7 +93,6 @@ class MoviesViewModel {
         isLoading = true
         errorMessage = nil
         movies = []
-        let dates = weekDates(for: currentWeekOffset)
 
         do {
             async let theatrical = TMDbService.shared.fetchTheatricalReleases(
@@ -93,6 +101,7 @@ class MoviesViewModel {
                 weekStart: dates.start, weekEnd: dates.end, countryCode: countryCode)
 
             let (theatricalResults, streamingResults) = try await (theatrical, streaming)
+            guard generation == loadGeneration else { return }
 
             // Deduplicate: streaming first, theatrical overwrites (so isTheatrical is accurate)
             var movieMap: [Int: (TMDbMovieResult, Bool)] = [:]
@@ -112,6 +121,9 @@ class MoviesViewModel {
             let primaryDateFmt: DateFormatter = {
                 let f = DateFormatter()
                 f.dateFormat = "yyyy-MM-dd"
+                // POSIX locale: parsing API dates must not depend on the device's
+                // calendar setting (Buddhist/Japanese calendars shift the year).
+                f.locale = Locale(identifier: "en_US_POSIX")
                 return f
             }()
 
@@ -132,6 +144,7 @@ class MoviesViewModel {
                     for try await pair in group { pairs.append(pair) }
                     return pairs
                 }
+                guard generation == loadGeneration else { return }
                 // Two-pass filter:
                 // 1. The movie's FIRST-EVER release in the selected country must
                 //    fall within the displayed week.
@@ -153,7 +166,7 @@ class MoviesViewModel {
                     // For past weeks, require the global primary release to be recent
                     // to block old movies with sparse re-release data slipping through.
                     // For current/future weeks, skip this guard so upcoming films appear.
-                    if currentWeekOffset < 0,
+                    if pastWeek,
                        let globalDate = primaryDateFmt.date(from: details.releaseDate),
                        globalDate < oneMonthAgo { return false }
                     return true
@@ -175,18 +188,21 @@ class MoviesViewModel {
                 }
             }
 
-            CacheService.shared.saveMovies(movies, forWeekOffset: currentWeekOffset)
+            CacheService.shared.saveMovies(movies, forWeekStart: dates.start)
 
         } catch {
+            guard generation == loadGeneration else { return }
             errorMessage = error.localizedDescription
             // Fall back to stale cache silently
-            if let cached = CacheService.shared.loadMovies(forWeekOffset: currentWeekOffset) {
+            if let cached = CacheService.shared.loadMovies(forWeekStart: dates.start) {
                 movies = cached
                 errorMessage = nil
             }
         }
 
-        isLoading = false
+        if generation == loadGeneration {
+            isLoading = false
+        }
     }
 
     func goToPreviousWeek() {
