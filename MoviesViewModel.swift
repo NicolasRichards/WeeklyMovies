@@ -14,13 +14,35 @@ class MoviesViewModel {
         didSet { UserDefaults.standard.set(wideOnly, forKey: "wideOnly") }
     }
     var countryCode: String {
-        didSet { UserDefaults.standard.set(countryCode, forKey: "selectedCountryCode") }
+        didSet {
+            UserDefaults.standard.set(countryCode, forKey: "selectedCountryCode")
+            NSUbiquitousKeyValueStore.default.set(countryCode, forKey: "selectedCountryCode")
+        }
     }
 
     init() {
-        countryCode = UserDefaults.standard.string(forKey: "selectedCountryCode")
+        let kvStore = NSUbiquitousKeyValueStore.default
+        kvStore.synchronize()
+        countryCode = kvStore.string(forKey: "selectedCountryCode")
+                      ?? UserDefaults.standard.string(forKey: "selectedCountryCode")
                       ?? Locale.current.region?.identifier
                       ?? "US"
+        NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: kvStore,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.applyExternalCountryChange()
+            }
+        }
+    }
+
+    /// Apply a country change synced from another device.
+    private func applyExternalCountryChange() {
+        guard let newCode = NSUbiquitousKeyValueStore.default.string(forKey: "selectedCountryCode"),
+              newCode != countryCode else { return }
+        setCountry(newCode)
     }
 
     /// Flag emoji for the current country code.
