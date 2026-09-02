@@ -5,6 +5,7 @@ struct ContentView: View {
     @State private var store = WatchlistStore.shared
     @State private var showingAPIKeySetup = false
     @State private var showingCountryPicker = false
+    @State private var showingAbout = false
     @State private var movieToRate: Movie?
     @Environment(\.openURL) private var openURL
 
@@ -26,6 +27,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingCountryPicker) {
             CountryPickerView(viewModel: viewModel)
+        }
+        .sheet(isPresented: $showingAbout) {
+            AboutView()
         }
         .sheet(item: $movieToRate) { movie in
             RateFilmSheet(title: movie.title) { rating in
@@ -82,6 +86,13 @@ struct ContentView: View {
                         showingAPIKeySetup = true
                     } label: {
                         Image(systemName: "key")
+                    }
+                }
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        showingAbout = true
+                    } label: {
+                        Image(systemName: "info.circle")
                     }
                 }
             }

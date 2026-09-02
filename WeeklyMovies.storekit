@@ -1,0 +1,68 @@
+{
+  "identifier" : "550BC70D-8124-4DC9-A062-B46583885BC5",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "1.99",
+      "familyShareable" : false,
+      "internalID" : "94C32BF4-7057-4B55-B950-EE5FCE77C33E",
+      "localizations" : [
+        {
+          "description" : "A small thank-you for a free app.",
+          "displayName" : "Small Tip",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "NickRichards.WeeklyMovies.tip.small",
+      "referenceName" : "Small Tip",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "3.99",
+      "familyShareable" : false,
+      "internalID" : "8CFAEE3B-CDAC-4F5A-8118-736932F78CD2",
+      "localizations" : [
+        {
+          "description" : "A generous thank-you for a free app.",
+          "displayName" : "Medium Tip",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "NickRichards.WeeklyMovies.tip.medium",
+      "referenceName" : "Medium Tip",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "85FCB5BD-513F-408E-8D96-A79B5C17E116",
+      "localizations" : [
+        {
+          "description" : "A very generous thank-you for a free app.",
+          "displayName" : "Large Tip",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "NickRichards.WeeklyMovies.tip.large",
+      "referenceName" : "Large Tip",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

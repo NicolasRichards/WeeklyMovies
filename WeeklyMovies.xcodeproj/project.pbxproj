@@ -21,6 +21,8 @@
 		01B8B83C2FD4BCB800D4B099 /* UserFilm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B8B8392FD4BCB800D4B099 /* UserFilm.swift */; };
 		01B8B83D2FD4BCB800D4B099 /* MyFilmsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B8B8372FD4BCB800D4B099 /* MyFilmsView.swift */; };
 		01B8B83E2FD4BCB800D4B099 /* RateFilmSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B8B8382FD4BCB800D4B099 /* RateFilmSheet.swift */; };
+		AAAA0001AAAA0001AAAA0001 /* TipJar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0001AAAA0001AAAA0002 /* TipJar.swift */; };
+		AAAA0003AAAA0003AAAA0003 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0003AAAA0003AAAA0004 /* AboutView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +41,9 @@
 		01B8B8382FD4BCB800D4B099 /* RateFilmSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateFilmSheet.swift; sourceTree = "<group>"; };
 		01B8B8392FD4BCB800D4B099 /* UserFilm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFilm.swift; sourceTree = "<group>"; };
 		01B8B83A2FD4BCB800D4B099 /* WatchlistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchlistStore.swift; sourceTree = "<group>"; };
+		AAAA0001AAAA0001AAAA0002 /* TipJar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TipJar.swift; sourceTree = "<group>"; };
+		AAAA0003AAAA0003AAAA0004 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		AAAA0005AAAA0005AAAA0005 /* WeeklyMovies.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = WeeklyMovies.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -77,6 +82,9 @@
 				0144D8A32F521C33009C0988 /* MoviesViewModel.swift */,
 				0144D8A42F521C33009C0988 /* TMDbService.swift */,
 				0144D8AE2F521C33009C0988 /* CountryPickerView.swift */,
+				AAAA0001AAAA0001AAAA0002 /* TipJar.swift */,
+				AAAA0003AAAA0003AAAA0004 /* AboutView.swift */,
+				AAAA0005AAAA0005AAAA0005 /* WeeklyMovies.storekit */,
 				0144D8902F521A91009C0988 /* WeeklyMovies */,
 				0144D88F2F521A91009C0988 /* Products */,
 			);
@@ -178,6 +186,8 @@
 				0144D8AC2F521C33009C0988 /* Models.swift in Sources */,
 				0144D8AD2F521C33009C0988 /* MoviesViewModel.swift in Sources */,
 				0144D8B02F521C33009C0988 /* CountryPickerView.swift in Sources */,
+				AAAA0001AAAA0001AAAA0001 /* TipJar.swift in Sources */,
+				AAAA0003AAAA0003AAAA0003 /* AboutView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
