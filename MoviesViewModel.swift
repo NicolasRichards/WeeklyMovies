@@ -32,8 +32,9 @@ class MoviesViewModel {
             object: kvStore,
             queue: .main
         ) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                self?.applyExternalCountryChange()
+                self.applyExternalCountryChange()
             }
         }
     }
