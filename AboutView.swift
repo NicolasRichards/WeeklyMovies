@@ -92,8 +92,8 @@ struct AboutView: View {
                     ProgressView()
                         .padding(.vertical, 12)
                 } else {
-                    ForEach(Array(tipJar.products.enumerated()), id: \.element.id) { index, product in
-                        tipRow(reels: index + 1, product: product)
+                    ForEach(tipJar.products, id: \.id) { product in
+                        tipRow(reels: reelCount(for: product), product: product)
                     }
                 }
             }
@@ -160,5 +160,14 @@ struct AboutView: View {
         case 2: "Medium tip"
         default: "Large tip"
         }
+    }
+
+    /// Reel count keyed off the product's own ID, not its position in a
+    /// price-sorted list — that list can have fewer than 3 entries whenever
+    /// not every tier is approved yet, which would otherwise mislabel tiers.
+    private func reelCount(for product: Product) -> Int {
+        if product.id.hasSuffix(".small") { return 1 }
+        if product.id.hasSuffix(".medium") { return 2 }
+        return 3
     }
 }
