@@ -25,7 +25,9 @@ class WatchlistStore {
             object: kvStore,
             queue: .main
         ) { [weak self] _ in
-            self?.load()
+            // The observer block is nonisolated even with queue: .main, so hop
+            // to the main actor explicitly rather than relying on the queue.
+            Task { @MainActor in self?.load() }
         }
         kvStore.synchronize()
     }
