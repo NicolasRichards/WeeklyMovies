@@ -88,9 +88,8 @@ class MoviesViewModel {
 
     var weekDateRange: String {
         let dates = weekDates(for: currentWeekOffset)
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return "\(f.string(from: dates.start)) – \(f.string(from: dates.end))"
+        let style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+        return "\(dates.start.formatted(style)) – \(dates.end.formatted(style))"
     }
 
     var canGoToNextWeek: Bool { currentWeekOffset < 4 }
@@ -110,6 +109,11 @@ class MoviesViewModel {
 
         if !forceRefresh, let cached = CacheService.shared.loadMovies(forWeekStart: dates.start) {
             movies = cached
+            // A load already in flight bails out on its generation check without
+            // clearing isLoading, so this newest load has to own the flag even
+            // when it returns early. Otherwise the spinner never goes away.
+            isLoading = false
+            errorMessage = nil
             return
         }
 

@@ -14,6 +14,12 @@ final class TipJar {
         "NickRichards.WeeklyMovies.tip.large",
     ]
 
+    /// Shared because the transaction listener has to outlive any one screen.
+    /// Running `listenForTransactions` from a sheet's `.task` cancelled it the
+    /// moment the sheet closed, so an Ask to Buy approval that landed later was
+    /// never finished and StoreKit kept redelivering it.
+    static let shared = TipJar()
+
     /// Loaded products, sorted cheapest first.
     private(set) var products: [Product] = []
     private(set) var isLoading = false

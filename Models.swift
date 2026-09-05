@@ -39,10 +39,11 @@ struct Movie: Identifiable, Codable, Equatable {
         return URL(string: "https://www.youtube.com/watch?v=\(key)")
     }
 
+    /// Locale-aware. A fixed "MM/dd/yyyy" pattern reads as day-first to most of
+    /// the countries in the picker, and renders the wrong year outright on a
+    /// device set to a Buddhist or Japanese calendar.
     var releaseDateFormatted: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MM/dd/yyyy"
-        return formatter.string(from: releaseDate)
+        releaseDate.formatted(date: .abbreviated, time: .omitted)
     }
 }
 

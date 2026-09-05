@@ -5,7 +5,7 @@ struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.requestReview) private var requestReview
-    @State private var tipJar = TipJar()
+    private let tipJar = TipJar.shared
 
     private let appStoreURL = URL(string: "https://apps.apple.com/app/id6777580481")!
 
@@ -51,7 +51,9 @@ struct AboutView: View {
                 .padding(24)
             }
             .navigationTitle("About")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -59,7 +61,6 @@ struct AboutView: View {
             }
         }
         .task { await tipJar.load() }
-        .task { await tipJar.listenForTransactions() }
     }
 
     // MARK: - Support
@@ -148,7 +149,7 @@ struct AboutView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .disabled(tipJar.purchasing != nil)
