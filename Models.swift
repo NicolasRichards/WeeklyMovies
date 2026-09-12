@@ -42,8 +42,14 @@ struct Movie: Identifiable, Codable, Equatable {
     /// Locale-aware. A fixed "MM/dd/yyyy" pattern reads as day-first to most of
     /// the countries in the picker, and renders the wrong year outright on a
     /// device set to a Buddhist or Japanese calendar.
+    ///
+    /// Formatted in UTC: TMDb release dates are midnight-UTC calendar dates
+    /// with no real time component, so formatting in the device's local time
+    /// zone rolled every date back to the previous day for anyone west of UTC.
     var releaseDateFormatted: String {
-        releaseDate.formatted(date: .abbreviated, time: .omitted)
+        releaseDate.formatted(
+            Date.FormatStyle(date: .abbreviated, time: .omitted, timeZone: TimeZone(identifier: "UTC")!)
+        )
     }
 }
 
