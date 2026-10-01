@@ -179,11 +179,19 @@ struct TMDbMovieDetails: Codable {
     func toMovie(isTheatrical: Bool, isWideRelease: Bool, countryCode: String, weekStart: Date, weekEnd: Date) -> Movie {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
+        // POSIX locale: this parses a TMDb API date string, so it must not depend
+        // on the device's calendar setting, same as every other date-string parser
+        // in this app (a Buddhist/Japanese calendar would otherwise shift the year
+        // or fail to parse entirely).
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
         // Use the country release date that falls within the displayed week so the
         // date shown matches when the movie opens locally, not an earlier foreign premiere.
+        // Falls back to the displayed week's start — never "today" — if TMDb's
+        // primary release_date is blank (it sometimes is) or unparseable, so a
+        // movie never shows a release date outside the week it's listed under.
         let date = releaseDate(for: countryCode, in: weekStart, to: weekEnd)
             ?? dateFormatter.date(from: releaseDate)
-            ?? Date()
+            ?? weekStart
 
         let director = credits?.crew.first(where: { $0.job == "Director" })?.name
         let cast = Array(

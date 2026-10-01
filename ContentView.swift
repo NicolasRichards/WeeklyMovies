@@ -163,6 +163,15 @@ struct ContentView: View {
                     .padding(10)
                     .background(.regularMaterial, in: Circle())
                     .padding(.top, 8)
+            } else if viewModel.errorMessage != nil && !viewModel.movies.isEmpty {
+                // A refresh failed and this list is a fallback from the cache —
+                // say so, rather than letting old data pass as a fresh result.
+                Label("Showing saved results", systemImage: "wifi.slash")
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 8)
             }
         }
     }
@@ -202,7 +211,17 @@ struct ContentView: View {
 
     private func ticketsButton(for movie: Movie) -> some View {
         Button {
-            let query = "\(movie.title) \(Calendar.current.component(.year, from: movie.releaseDate)) movie tickets"
+            // movie.releaseDate is a midnight-UTC TMDb calendar date, not a real
+            // instant — pulling .year via Calendar.current (the device's local
+            // timezone AND calendar identifier) can shift it to the wrong year,
+            // same root cause already fixed for releaseDateFormatted. A Thai
+            // (Buddhist calendar) device would otherwise always search the
+            // Buddhist-era year; a device west of UTC could search the prior
+            // year for a release right at the Dec 31/Jan 1 boundary.
+            var utcCalendar = Calendar(identifier: .gregorian)
+            utcCalendar.timeZone = TimeZone(identifier: "UTC")!
+            let year = utcCalendar.component(.year, from: movie.releaseDate)
+            let query = "\(movie.title) \(year) movie tickets"
             let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
             if let url = URL(string: "https://www.google.com/search?q=\(encoded)") {
                 openURL(url)

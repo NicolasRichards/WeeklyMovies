@@ -107,7 +107,7 @@ class MoviesViewModel {
         let dates = weekDates(for: currentWeekOffset)
         let pastWeek = currentWeekOffset < 0
 
-        if !forceRefresh, let cached = CacheService.shared.loadMovies(forWeekStart: dates.start) {
+        if !forceRefresh, let cached = CacheService.shared.loadMovies(forWeekStart: dates.start, countryCode: countryCode) {
             movies = cached
             // A load already in flight bails out on its generation check without
             // clearing isLoading, so this newest load has to own the flag even
@@ -157,21 +157,40 @@ class MoviesViewModel {
             // Fetch details in batches to stay under the 40 req/10s rate limit.
             // Task group returns raw TMDbMovieDetails; toMovie() is called after
             // the group completes so it runs on the main actor (Swift 6 safe).
-            for batch in allEntries.chunked(into: 15) {
-                let batchDetails = try await withThrowingTaskGroup(
-                    of: (TMDbMovieDetails, Bool).self
+            // Each child task catches its own error (a dropped connection, a
+            // timeout, a decode failure) and returns nil instead of throwing —
+            // a throwing task group aborts the whole group on the first error,
+            // which used to discard every other movie already fetched in that
+            // batch and skip every batch after it, with nothing shown to the user.
+            // 8 concurrent requests every 2s works out to exactly 4 req/s — the
+            // 40 req/10s budget above — regardless of how many batches a busy
+            // week needs. The previous 15-per-batch/0.5s pacing only bounded the
+            // gap *between* batches: a week with several batches of fast-returning
+            // requests could burst well past 40 req/10s and get rate-limited.
+            let batches = allEntries.chunked(into: 8)
+            var detailFetchFailures = 0
+            for (batchIndex, batch) in batches.enumerated() {
+                let batchDetails = await withTaskGroup(
+                    of: (TMDbMovieDetails, Bool)?.self
                 ) { group in
                     for (result, isTheatrical) in batch {
                         group.addTask {
-                            let details = try await TMDbService.shared.fetchMovieDetails(id: result.id)
-                            return (details, isTheatrical)
+                            do {
+                                let details = try await TMDbService.shared.fetchMovieDetails(id: result.id)
+                                return (details, isTheatrical)
+                            } catch {
+                                return nil
+                            }
                         }
                     }
                     var pairs: [(TMDbMovieDetails, Bool)] = []
-                    for try await pair in group { pairs.append(pair) }
+                    for await pair in group {
+                        if let pair { pairs.append(pair) }
+                    }
                     return pairs
                 }
                 guard generation == loadGeneration else { return }
+                detailFetchFailures += batch.count - batchDetails.count
                 // Two-pass filter:
                 // 1. The movie's FIRST-EVER release in the selected country must
                 //    fall within the displayed week.
@@ -210,20 +229,28 @@ class MoviesViewModel {
                 // Append each batch immediately so the list populates progressively.
                 movies = (movies + newMovies).sorted { $0.voteCount > $1.voteCount }
 
-                if allEntries.count > 15 {
-                    try await Task.sleep(nanoseconds: 500_000_000) // 0.5s between batches
+                if batchIndex < batches.count - 1 {
+                    try await Task.sleep(nanoseconds: 2_000_000_000) // 2s between batches
                 }
             }
 
-            CacheService.shared.saveMovies(movies, forWeekStart: dates.start)
+            CacheService.shared.saveMovies(movies, forWeekStart: dates.start, countryCode: countryCode)
+
+            // Every single detail fetch failed (e.g. the connection dropped
+            // mid-load) — don't let an empty list read as "no releases this week"
+            // with no explanation.
+            if movies.isEmpty, !allEntries.isEmpty, detailFetchFailures == allEntries.count {
+                errorMessage = "Couldn't load this week's movies. Please try again."
+            }
 
         } catch {
             guard generation == loadGeneration else { return }
             errorMessage = error.localizedDescription
-            // Fall back to stale cache silently
-            if let cached = CacheService.shared.loadMovies(forWeekStart: dates.start) {
+            // Fall back to a stale cache so the screen isn't empty, but keep
+            // errorMessage set — ContentView shows it as a small "offline" banner
+            // over the list rather than presenting old data as if it just loaded.
+            if let cached = CacheService.shared.loadMovies(forWeekStart: dates.start, countryCode: countryCode) {
                 movies = cached
-                errorMessage = nil
             }
         }
 

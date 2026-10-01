@@ -77,18 +77,6 @@ class WatchlistStore {
     // MARK: - Persistence
 
     private func load() {
-        // Migrate any existing local data to iCloud on first run
-        if kvStore.data(forKey: watchlistKey) == nil,
-           kvStore.data(forKey: seenListKey) == nil,
-           let data = try? Data(contentsOf: localURL),
-           let saved = try? JSONDecoder().decode(SavedData.self, from: data) {
-            watchlist = saved.watchlist
-            seenList = saved.seenList
-            save() // push local data up to iCloud
-            try? FileManager.default.removeItem(at: localURL)
-            return
-        }
-
         if let data = kvStore.data(forKey: watchlistKey),
            let list = try? JSONDecoder().decode([UserFilm].self, from: data) {
             watchlist = list
@@ -96,6 +84,24 @@ class WatchlistStore {
         if let data = kvStore.data(forKey: seenListKey),
            let list = try? JSONDecoder().decode([UserFilm].self, from: data) {
             seenList = list
+        }
+
+        // Merge in any pre-iCloud local data still sitting on this device. This
+        // can't be gated on "iCloud is still empty" — on a second device that
+        // had its own separate pre-sync watchlist, a first device may have
+        // already pushed its own list to iCloud by the time this one upgrades,
+        // which would make that check false and strand this device's local file
+        // on disk forever, invisible to the user. Local-only films (by movie ID)
+        // are merged in; where both sides already have the same film, the
+        // already-synced iCloud copy wins.
+        if let data = try? Data(contentsOf: localURL),
+           let saved = try? JSONDecoder().decode(SavedData.self, from: data) {
+            let watchlistIDs = Set(watchlist.map(\.id))
+            let seenIDs = Set(seenList.map(\.id))
+            watchlist += saved.watchlist.filter { !watchlistIDs.contains($0.id) }
+            seenList += saved.seenList.filter { !seenIDs.contains($0.id) }
+            try? FileManager.default.removeItem(at: localURL)
+            save() // push the merged-in local data to iCloud
         }
     }
 

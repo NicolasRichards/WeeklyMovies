@@ -23,15 +23,15 @@ class CacheService {
         removeLegacyOffsetFiles()
     }
 
-    func saveMovies(_ movies: [Movie], forWeekStart weekStart: Date) {
+    func saveMovies(_ movies: [Movie], forWeekStart weekStart: Date, countryCode: String) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(movies) else { return }
-        try? data.write(to: cacheURL(for: weekStart))
+        try? data.write(to: cacheURL(for: weekStart, countryCode: countryCode))
     }
 
-    func loadMovies(forWeekStart weekStart: Date) -> [Movie]? {
-        guard let data = try? Data(contentsOf: cacheURL(for: weekStart)) else { return nil }
+    func loadMovies(forWeekStart weekStart: Date, countryCode: String) -> [Movie]? {
+        guard let data = try? Data(contentsOf: cacheURL(for: weekStart, countryCode: countryCode)) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode([Movie].self, from: data)
@@ -42,8 +42,14 @@ class CacheService {
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 
-    private func cacheURL(for weekStart: Date) -> URL {
-        cacheDirectory.appendingPathComponent("week_\(keyFormatter.string(from: weekStart)).json")
+    // Keyed by week start AND country: a cache file written under one country
+    // must never answer a lookup for a different country. Without the country
+    // in the key, a country change synced via iCloud while the app wasn't
+    // running could leave a stale, wrong-region cache file on disk that a later
+    // non-force-refresh (e.g. navigating to an adjacent week) would read as if
+    // it were current data for the new country.
+    private func cacheURL(for weekStart: Date, countryCode: String) -> URL {
+        cacheDirectory.appendingPathComponent("week_\(keyFormatter.string(from: weekStart))_\(countryCode).json")
     }
 
     private func removeLegacyOffsetFiles() {
