@@ -95,12 +95,7 @@ class TMDbService {
     }
 
     private func dateString(from date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        // POSIX locale: API dates must not depend on the device's calendar
-        // setting (Buddhist/Japanese calendars shift the year).
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f.string(from: date)
+        DateFormatter.tmdbDateOnly().string(from: date)
     }
 }
 

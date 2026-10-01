@@ -1,5 +1,23 @@
 import Foundation
 
+// MARK: - Shared Formatters
+
+extension DateFormatter {
+    /// A "yyyy-MM-dd" formatter for TMDb's plain calendar-date fields. POSIX
+    /// locale so parsing/formatting never depends on the device's calendar
+    /// identifier (a Buddhist/Japanese calendar would otherwise shift the year
+    /// or fail to parse). Pass `timeZone` only when the string is being parsed
+    /// as an absolute UTC calendar date rather than formatted/compared against
+    /// a device-local date grid (those callers must leave it at the device default).
+    static func tmdbDateOnly(timeZone: TimeZone? = nil) -> DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        if let timeZone { f.timeZone = timeZone }
+        return f
+    }
+}
+
 // MARK: - App Models
 
 struct Movie: Identifiable, Codable, Equatable {
@@ -177,13 +195,12 @@ struct TMDbMovieDetails: Codable {
     }
 
     func toMovie(isTheatrical: Bool, isWideRelease: Bool, countryCode: String, weekStart: Date, weekEnd: Date) -> Movie {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        // POSIX locale: this parses a TMDb API date string, so it must not depend
-        // on the device's calendar setting, same as every other date-string parser
-        // in this app (a Buddhist/Japanese calendar would otherwise shift the year
-        // or fail to parse entirely).
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        // UTC: this parses TMDb's midnight-UTC calendar-date string into the
+        // Movie's stored releaseDate, which is later displayed via an explicit
+        // UTC formatter/calendar (releaseDateFormatted, ticketsButton) — parsing
+        // in the device's local time zone would shift the stored instant and
+        // make those UTC-anchored displays show the wrong day.
+        let dateFormatter = DateFormatter.tmdbDateOnly(timeZone: TimeZone(identifier: "UTC")!)
         // Use the country release date that falls within the displayed week so the
         // date shown matches when the movie opens locally, not an earlier foreign premiere.
         // Falls back to the displayed week's start — never "today" — if TMDb's
@@ -212,7 +229,14 @@ struct TMDbMovieDetails: Codable {
             )
         }
 
-        let isoFormatter = ISO8601DateFormatter()
+        // TMDb timestamps look like "2015-12-25T00:00:00.000Z" — fractional
+        // seconds aren't handled by ISO8601DateFormatter's default options, so
+        // fall back to a fractional-seconds-aware formatter first, same pattern
+        // as hasRelease/releaseDate/hasWideRelease above.
+        let reviewDateFormatter = ISO8601DateFormatter()
+        reviewDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let reviewDateFallbackFormatter = ISO8601DateFormatter()
+        reviewDateFallbackFormatter.formatOptions = [.withInternetDateTime]
         let movieReviews: [Review] = (reviews?.results ?? []).map { r in
             Review(
                 id: r.id,
@@ -220,7 +244,9 @@ struct TMDbMovieDetails: Codable {
                 content: r.content,
                 rating: r.authorDetails?.rating,
                 url: r.url,
-                createdAt: isoFormatter.date(from: r.createdAt) ?? Date()
+                createdAt: reviewDateFormatter.date(from: r.createdAt)
+                    ?? reviewDateFallbackFormatter.date(from: r.createdAt)
+                    ?? Date()
             )
         }
 

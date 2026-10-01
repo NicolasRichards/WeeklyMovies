@@ -11,6 +11,7 @@ class WatchlistStore {
     private let kvStore = NSUbiquitousKeyValueStore.default
     private let watchlistKey = "wm_watchlist"
     private let seenListKey = "wm_seenList"
+    private let migratedLocalFilmsKey = "wm_didMigrateLocalFilms"
 
     // Local fallback (also used for migration of pre-iCloud data)
     private var localURL: URL {
@@ -91,17 +92,27 @@ class WatchlistStore {
         // had its own separate pre-sync watchlist, a first device may have
         // already pushed its own list to iCloud by the time this one upgrades,
         // which would make that check false and strand this device's local file
-        // on disk forever, invisible to the user. Local-only films (by movie ID)
-        // are merged in; where both sides already have the same film, the
-        // already-synced iCloud copy wins.
-        if let data = try? Data(contentsOf: localURL),
+        // on disk forever, invisible to the user. Local-only films (by movie ID,
+        // checked against BOTH lists so a film already seen elsewhere isn't also
+        // merged into watchlist) are merged in; where either side already has
+        // the film, the already-synced iCloud copy wins. Gated by a one-time
+        // flag (not just the local file's existence) so this can only ever run
+        // once per device — load() reruns on every external iCloud change with
+        // no key filter, and re-running the merge risks re-adding a film that
+        // was deliberately removed on another device after it synced.
+        if !UserDefaults.standard.bool(forKey: migratedLocalFilmsKey),
+           let data = try? Data(contentsOf: localURL),
            let saved = try? JSONDecoder().decode(SavedData.self, from: data) {
-            let watchlistIDs = Set(watchlist.map(\.id))
-            let seenIDs = Set(seenList.map(\.id))
-            watchlist += saved.watchlist.filter { !watchlistIDs.contains($0.id) }
-            seenList += saved.seenList.filter { !seenIDs.contains($0.id) }
+            let existingIDs = Set(watchlist.map(\.id)).union(seenList.map(\.id))
+            watchlist += saved.watchlist.filter { !existingIDs.contains($0.id) }
+            seenList += saved.seenList.filter { !existingIDs.contains($0.id) }
+            // Restore most-recent-first order (addToWatchlist/markSeen maintain
+            // it via insert(at: 0)) after appending the merged-in local films.
+            watchlist.sort { $0.dateAdded > $1.dateAdded }
+            seenList.sort { $0.dateAdded > $1.dateAdded }
+            save() // push the merged-in local data to iCloud before deleting the backup
             try? FileManager.default.removeItem(at: localURL)
-            save() // push the merged-in local data to iCloud
+            UserDefaults.standard.set(true, forKey: migratedLocalFilmsKey)
         }
     }
 

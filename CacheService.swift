@@ -8,18 +8,14 @@ class CacheService {
     // Cache files are keyed by the week's actual start date (e.g. week_2026-06-08.json).
     // Keying by relative offset would serve a previous calendar week's data once
     // the real week rolls over.
-    private let keyFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
-    }()
+    private let keyFormatter = DateFormatter.tmdbDateOnly()
 
     init() {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         cacheDirectory = caches.appendingPathComponent("WeeklyMovies", isDirectory: true)
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-        // One-time cleanup of legacy offset-keyed files (week_0.json etc.)
+        // One-time cleanup of legacy cache files: offset-keyed (week_0.json)
+        // and the pre-country-split date-only format (week_2026-10-05.json).
         removeLegacyOffsetFiles()
     }
 
@@ -54,7 +50,12 @@ class CacheService {
 
     private func removeLegacyOffsetFiles() {
         guard let files = try? FileManager.default.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil) else { return }
-        for file in files where file.lastPathComponent.range(of: #"^week_-?\d+\.json$"#, options: .regularExpression) != nil {
+        // Matches both the original offset-keyed format (week_0.json) and the
+        // date-only format used before cache files were also keyed by country
+        // (week_2026-10-05.json) — neither is ever read again under the
+        // current week_<date>_<countryCode>.json scheme.
+        let legacyPattern = #"^week_(-?\d+|\d{4}-\d{2}-\d{2})\.json$"#
+        for file in files where file.lastPathComponent.range(of: legacyPattern, options: .regularExpression) != nil {
             try? FileManager.default.removeItem(at: file)
         }
     }

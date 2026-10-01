@@ -23,10 +23,23 @@ class MoviesViewModel {
     init() {
         let kvStore = NSUbiquitousKeyValueStore.default
         kvStore.synchronize()
+        // Captured before countryCode's own didSet (which doesn't fire for this
+        // initial assignment) can overwrite it, so a change picked up here can
+        // still be detected below.
+        let previousCountryCode = UserDefaults.standard.string(forKey: "selectedCountryCode")
         countryCode = kvStore.string(forKey: "selectedCountryCode")
-                      ?? UserDefaults.standard.string(forKey: "selectedCountryCode")
+                      ?? previousCountryCode
                       ?? Locale.current.region?.identifier
                       ?? "US"
+        if let previousCountryCode, previousCountryCode != countryCode {
+            // A country change synced via iCloud while the app was fully
+            // closed is picked up directly here rather than through
+            // setCountry(), which is the only other place that clears the
+            // (now per-country) cache — do it here too so the old country's
+            // cache files don't accumulate forever.
+            CacheService.shared.clearCache()
+        }
+        UserDefaults.standard.set(countryCode, forKey: "selectedCountryCode")
         NotificationCenter.default.addObserver(
             forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
             object: kvStore,
@@ -122,13 +135,45 @@ class MoviesViewModel {
         movies = []
 
         do {
-            async let theatrical = TMDbService.shared.fetchTheatricalReleases(
-                weekStart: dates.start, weekEnd: dates.end, countryCode: countryCode)
-            async let streaming = TMDbService.shared.fetchStreamingReleases(
-                weekStart: dates.start, weekEnd: dates.end, countryCode: countryCode)
+            async let theatricalOutcome = fetchOutcome {
+                try await TMDbService.shared.fetchTheatricalReleases(
+                    weekStart: dates.start, weekEnd: dates.end, countryCode: countryCode)
+            }
+            async let streamingOutcome = fetchOutcome {
+                try await TMDbService.shared.fetchStreamingReleases(
+                    weekStart: dates.start, weekEnd: dates.end, countryCode: countryCode)
+            }
 
-            let (theatricalResults, streamingResults) = try await (theatrical, streaming)
+            // Each fetch's outcome is captured independently so one failing
+            // doesn't discard a result the other already completed — unless
+            // that failure is a cancellation, which always propagates rather
+            // than being treated as a tolerable partial failure.
+            let (theatricalResult, streamingResult) = await (theatricalOutcome, streamingOutcome)
             guard generation == loadGeneration else { return }
+
+            let theatricalResults: [TMDbMovieResult]
+            let streamingResults: [TMDbMovieResult]
+            // Set only when exactly one side failed — tolerated so the other
+            // side's good results aren't discarded, but still surfaced below
+            // so a missing category (e.g. every streaming-only release) isn't
+            // silently absent with no explanation.
+            var listFetchError: Error?
+            switch (theatricalResult, streamingResult) {
+            case (.failure(let error), _) where error is CancellationError:
+                throw error
+            case (_, .failure(let error)) where error is CancellationError:
+                throw error
+            case (.success(let t), .success(let s)):
+                (theatricalResults, streamingResults) = (t, s)
+            case (.success(let t), .failure(let error)):
+                (theatricalResults, streamingResults) = (t, [])
+                listFetchError = error
+            case (.failure(let error), .success(let s)):
+                (theatricalResults, streamingResults) = ([], s)
+                listFetchError = error
+            case (.failure(let error), .failure):
+                throw error
+            }
 
             // Deduplicate: streaming first, theatrical overwrites (so isTheatrical is accurate)
             var movieMap: [Int: (TMDbMovieResult, Bool)] = [:]
@@ -145,14 +190,10 @@ class MoviesViewModel {
             // primary release to be within the past month blocks those false positives
             // while still allowing legitimate delayed international rollouts.
             let oneMonthAgo = Calendar.current.date(byAdding: .month, value: -1, to: Date())!
-            let primaryDateFmt: DateFormatter = {
-                let f = DateFormatter()
-                f.dateFormat = "yyyy-MM-dd"
-                // POSIX locale: parsing API dates must not depend on the device's
-                // calendar setting (Buddhist/Japanese calendars shift the year).
-                f.locale = Locale(identifier: "en_US_POSIX")
-                return f
-            }()
+            // No explicit time zone: this is compared against dates.start/weekEnd1Day,
+            // which are themselves device-local-midnight values, so it must stay
+            // on the device default to match that grid.
+            let primaryDateFmt = DateFormatter.tmdbDateOnly()
 
             // Fetch details in batches to stay under the 40 req/10s rate limit.
             // Task group returns raw TMDbMovieDetails; toMovie() is called after
@@ -169,28 +210,42 @@ class MoviesViewModel {
             // requests could burst well past 40 req/10s and get rate-limited.
             let batches = allEntries.chunked(into: 8)
             var detailFetchFailures = 0
+            var lastDetailFetchError: Error?
             for (batchIndex, batch) in batches.enumerated() {
-                let batchDetails = await withTaskGroup(
-                    of: (TMDbMovieDetails, Bool)?.self
+                let (batchDetails, batchOutcomes) = await withTaskGroup(
+                    of: Result<(TMDbMovieDetails, Bool), Error>.self
                 ) { group in
                     for (result, isTheatrical) in batch {
                         group.addTask {
                             do {
                                 let details = try await TMDbService.shared.fetchMovieDetails(id: result.id)
-                                return (details, isTheatrical)
+                                return .success((details, isTheatrical))
                             } catch {
-                                return nil
+                                return .failure(error)
                             }
                         }
                     }
                     var pairs: [(TMDbMovieDetails, Bool)] = []
-                    for await pair in group {
-                        if let pair { pairs.append(pair) }
+                    var outcomes: [Result<(TMDbMovieDetails, Bool), Error>] = []
+                    for await outcome in group {
+                        outcomes.append(outcome)
+                        if case .success(let pair) = outcome { pairs.append(pair) }
                     }
-                    return pairs
+                    return (pairs, outcomes)
                 }
                 guard generation == loadGeneration else { return }
+                // A cancellation checkpoint on every batch, not just non-last
+                // ones — the inter-batch sleep below is skipped for the last
+                // batch, so without this a cancellation during the final batch
+                // had no checkpoint before falling through as if the load had
+                // completed normally.
+                try Task.checkCancellation()
                 detailFetchFailures += batch.count - batchDetails.count
+                for outcome in batchOutcomes {
+                    if case .failure(let error) = outcome, !(error is CancellationError), lastDetailFetchError == nil {
+                        lastDetailFetchError = error
+                    }
+                }
                 // Two-pass filter:
                 // 1. The movie's FIRST-EVER release in the selected country must
                 //    fall within the displayed week.
@@ -234,17 +289,35 @@ class MoviesViewModel {
                 }
             }
 
-            CacheService.shared.saveMovies(movies, forWeekStart: dates.start, countryCode: countryCode)
-
             // Every single detail fetch failed (e.g. the connection dropped
             // mid-load) — don't let an empty list read as "no releases this week"
-            // with no explanation.
-            if movies.isEmpty, !allEntries.isEmpty, detailFetchFailures == allEntries.count {
-                errorMessage = "Couldn't load this week's movies. Please try again."
+            // with no explanation, and don't let it overwrite a previously-good
+            // cache with this empty result either.
+            let totalFailure = !allEntries.isEmpty && detailFetchFailures == allEntries.count
+            if !totalFailure {
+                CacheService.shared.saveMovies(movies, forWeekStart: dates.start, countryCode: countryCode)
+            }
+            if totalFailure {
+                errorMessage = lastDetailFetchError?.localizedDescription
+                    ?? "Couldn't load this week's movies. Please try again."
+            } else if detailFetchFailures > 0 {
+                // A partial failure used to be completely silent, with the
+                // incomplete list cached and shown as if the week were complete.
+                errorMessage = "Showing \(movies.count) of \(allEntries.count) movies — some failed to load."
+            } else if let listFetchError {
+                errorMessage = listFetchError.localizedDescription
             }
 
         } catch {
             guard generation == loadGeneration else { return }
+            // A forced refresh's own `movies = []` above can tear down the view
+            // hosting the in-flight .refreshable/.task that started this very
+            // load, cancelling it — that's benign and shouldn't read as a
+            // real failure the way a genuine network error should.
+            if error is CancellationError {
+                if generation == loadGeneration { isLoading = false }
+                return
+            }
             errorMessage = error.localizedDescription
             // Fall back to a stale cache so the screen isn't empty, but keep
             // errorMessage set — ContentView shows it as a small "offline" banner
@@ -276,6 +349,11 @@ class MoviesViewModel {
     }
 
     // MARK: - Helpers
+
+    private func fetchOutcome<T>(_ operation: @Sendable () async throws -> T) async -> Result<T, Error> {
+        do { return .success(try await operation()) }
+        catch { return .failure(error) }
+    }
 
     func weekDates(for offset: Int) -> (start: Date, end: Date) {
         var calendar = Calendar(identifier: .gregorian)
