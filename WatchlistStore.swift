@@ -25,10 +25,15 @@ class WatchlistStore {
             forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
             object: kvStore,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            let reason = note.userInfo?[NSUbiquitousKeyValueStoreChangeReasonKey] as? Int
             // The observer block is nonisolated even with queue: .main, so hop
             // to the main actor explicitly rather than relying on the queue.
-            Task { @MainActor in self?.load() }
+            Task { @MainActor in
+                // A different iCloud account: drop the old account's lists so the
+                // next edit can't push them into the new account.
+                self?.load(replacingMissing: reason == NSUbiquitousKeyValueStoreAccountChange)
+            }
         }
         kvStore.synchronize()
     }
@@ -39,35 +44,38 @@ class WatchlistStore {
         guard !isInWatchlist(movie.id), !isInSeen(movie.id) else { return }
         watchlist.insert(UserFilm(id: movie.id, title: movie.title,
                                   posterPath: movie.posterPath, dateAdded: Date()), at: 0)
-        save()
+        saveWatchlist()
     }
 
     func removeFromWatchlist(_ id: Int) {
         watchlist.removeAll { $0.id == id }
-        save()
+        saveWatchlist()
     }
 
     func markSeen(_ movie: Movie, rating: Int?) {
-        watchlist.removeAll { $0.id == movie.id }
+        if isInWatchlist(movie.id) {
+            watchlist.removeAll { $0.id == movie.id }
+            saveWatchlist()
+        }
         if !isInSeen(movie.id) {
             seenList.insert(UserFilm(id: movie.id, title: movie.title,
                                      posterPath: movie.posterPath, dateAdded: Date(),
                                      seenDate: Date(), personalRating: rating), at: 0)
+            saveSeenList()
         } else if let rating {
             updateRating(id: movie.id, rating: rating)
         }
-        save()
     }
 
     func updateRating(id: Int, rating: Int?) {
         guard let idx = seenList.firstIndex(where: { $0.id == id }) else { return }
         seenList[idx].personalRating = rating
-        save()
+        saveSeenList()
     }
 
     func removeFromSeen(_ id: Int) {
         seenList.removeAll { $0.id == id }
-        save()
+        saveSeenList()
     }
 
     // MARK: - Queries
@@ -77,14 +85,20 @@ class WatchlistStore {
 
     // MARK: - Persistence
 
-    private func load() {
+    /// `replacingMissing` empties a list whose key is absent (a new iCloud
+    /// account) instead of keeping what's in memory.
+    private func load(replacingMissing: Bool = false) {
         if let data = kvStore.data(forKey: watchlistKey),
            let list = try? JSONDecoder().decode([UserFilm].self, from: data) {
             watchlist = list
+        } else if replacingMissing {
+            watchlist = []
         }
         if let data = kvStore.data(forKey: seenListKey),
            let list = try? JSONDecoder().decode([UserFilm].self, from: data) {
             seenList = list
+        } else if replacingMissing {
+            seenList = []
         }
 
         // Merge in any pre-iCloud local data still sitting on this device. This
@@ -110,18 +124,22 @@ class WatchlistStore {
             // it via insert(at: 0)) after appending the merged-in local films.
             watchlist.sort { $0.dateAdded > $1.dateAdded }
             seenList.sort { $0.dateAdded > $1.dateAdded }
-            save() // push the merged-in local data to iCloud before deleting the backup
+            // Push the merged-in local data to iCloud before deleting the backup
+            saveWatchlist()
+            saveSeenList()
             try? FileManager.default.removeItem(at: localURL)
             UserDefaults.standard.set(true, forKey: migratedLocalFilmsKey)
         }
     }
 
-    private func save() {
-        if let data = try? JSONEncoder().encode(watchlist) {
-            kvStore.set(data, forKey: watchlistKey)
-        }
-        if let data = try? JSONEncoder().encode(seenList) {
-            kvStore.set(data, forKey: seenListKey)
+    // Each list is written only when it changed, so a stale copy of the other
+    // list on this device can't overwrite another device's newer edits to it.
+    private func saveWatchlist() { save(watchlist, forKey: watchlistKey) }
+    private func saveSeenList() { save(seenList, forKey: seenListKey) }
+
+    private func save(_ films: [UserFilm], forKey key: String) {
+        if let data = try? JSONEncoder().encode(films) {
+            kvStore.set(data, forKey: key)
         }
         kvStore.synchronize()
     }

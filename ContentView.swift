@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var showingAbout = false
     @State private var movieToRate: Movie?
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView {
@@ -19,11 +20,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingAPIKeySetup) {
             APIKeySetupView(isPresented: $showingAPIKeySetup) {
-                Task { await viewModel.loadMovies(forceRefresh: true) }
+                Task { await viewModel.loadMovies() }
+            } onRemove: {
+                viewModel.clearForMissingKey()
             }
-            // First run has no key yet — swiping the sheet away would leave an
-            // empty screen, so block interactive dismissal until a key is saved.
-            .interactiveDismissDisabled(!KeychainHelper.shared.hasAPIKey)
         }
         .sheet(isPresented: $showingCountryPicker) {
             CountryPickerView(viewModel: viewModel)
@@ -41,8 +41,11 @@ struct ContentView: View {
             if !KeychainHelper.shared.hasAPIKey {
                 showingAPIKeySetup = true
             } else {
-                await viewModel.loadMovies(forceRefresh: true)
+                await viewModel.loadMovies()
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { viewModel.reloadIfWeekRolledOver() }
         }
     }
 
@@ -51,7 +54,7 @@ struct ContentView: View {
     private var weeklyTab: some View {
         NavigationStack {
             Group {
-                if viewModel.isLoading && viewModel.movies.isEmpty {
+                if viewModel.isLoading && viewModel.movies.isEmpty && !viewModel.hasLoadedSelection {
                     loadingView
                 } else if let error = viewModel.errorMessage, viewModel.movies.isEmpty {
                     errorView(message: error)
@@ -63,7 +66,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        Task { await viewModel.loadMovies(forceRefresh: true) }
+                        Task { await viewModel.loadMovies() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -108,6 +111,13 @@ struct ContentView: View {
             }
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets())
+
+            if let message = viewModel.errorMessage, !viewModel.movies.isEmpty {
+                Section {
+                    resultsNotice(message: message)
+                }
+                .listRowBackground(Color.clear)
+            }
 
             Section {
                 Picker("Filter", selection: $viewModel.filter) {
@@ -155,25 +165,47 @@ struct ContentView: View {
         }
         .listStyle(.plain)
         .refreshable {
-            await viewModel.loadMovies(forceRefresh: true)
+            await viewModel.loadMovies()
         }
-        .overlay(alignment: .top) {
-            if viewModel.isLoading && !viewModel.movies.isEmpty {
-                ProgressView()
-                    .padding(10)
-                    .background(.regularMaterial, in: Circle())
-                    .padding(.top, 8)
-            } else if viewModel.errorMessage != nil && !viewModel.movies.isEmpty {
-                // A refresh failed and this list is a fallback from the cache —
-                // say so, rather than letting old data pass as a fresh result.
-                Label("Showing saved results", systemImage: "wifi.slash")
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(.top, 8)
+        .overlay(alignment: .bottom) {
+            if viewModel.isLoading {
+                // At the bottom so it never covers the week navigation bar
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Updating…")
+                }
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.bottom, 12)
             }
         }
+    }
+
+    /// Why the list shown isn't a complete, fresh result: saved results after a
+    /// failed refresh, or fresh results with something missing.
+    private func resultsNotice(message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text(viewModel.showingSavedResults ? "Showing saved results. \(message)" : message)
+            } icon: {
+                Image(systemName: viewModel.apiKeyRejected ? "key"
+                      : viewModel.showingSavedResults ? "wifi.slash" : "exclamationmark.triangle")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            if viewModel.apiKeyRejected {
+                updateKeyButton
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private var updateKeyButton: some View {
+        Button("Update API Key") { showingAPIKeySetup = true }
     }
 
     // MARK: - Swipe action buttons
@@ -234,28 +266,46 @@ struct ContentView: View {
 
     // MARK: - Supporting views
 
+    /// Keeps the week arrows available while nothing is listed yet.
+    private func withWeekNavigation<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            weekNavigationBar
+                .padding(.horizontal)
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
     private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView().scaleEffect(1.5)
-            Text("Loading this week's movies…").foregroundStyle(.secondary)
+        withWeekNavigation {
+            VStack(spacing: 16) {
+                ProgressView().scaleEffect(1.5)
+                Text("Loading this week's movies…").foregroundStyle(.secondary)
+            }
         }
     }
 
     private func errorView(message: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 48))
-                .foregroundStyle(.red)
-            Text("Something went wrong").font(.headline)
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Button("Try Again") {
-                Task { await viewModel.loadMovies(forceRefresh: true) }
+        withWeekNavigation {
+            VStack(spacing: 16) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.red)
+                Text("Something went wrong").font(.headline)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                if viewModel.apiKeyRejected {
+                    updateKeyButton
+                        .buttonStyle(.borderedProminent)
+                }
+                Button("Try Again") {
+                    Task { await viewModel.loadMovies() }
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
         }
     }
 

@@ -31,8 +31,11 @@ struct MyFilmsView: View {
             }
         }
         .sheet(item: $filmToRate) { film in
-            RateFilmSheet(title: film.title) { rating in
-                store.updateRating(id: film.id, rating: rating)
+            RateFilmSheet(title: film.title, initialRating: film.personalRating) { rating in
+                // Skip (nil) leaves the existing rating alone; 0 clears it
+                if let rating {
+                    store.updateRating(id: film.id, rating: rating == 0 ? nil : rating)
+                }
                 filmToRate = nil
             }
         }
@@ -50,11 +53,7 @@ struct MyFilmsView: View {
                         filmRow(film)
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
-                                    if selectedTab == .watchlist {
-                                        store.removeFromWatchlist(film.id)
-                                    } else {
-                                        store.removeFromSeen(film.id)
-                                    }
+                                    store.removeFromWatchlist(film.id)
                                 } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
@@ -94,7 +93,7 @@ struct MyFilmsView: View {
 
     private func filmRow(_ film: UserFilm) -> some View {
         HStack(spacing: 12) {
-            posterThumbnail(film.posterURL)
+            posterThumbnail(PosterSize.w185.url(for: film.posterPath))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(film.title)
@@ -110,7 +109,7 @@ struct MyFilmsView: View {
 
     private func seenRow(_ film: UserFilm) -> some View {
         HStack(spacing: 12) {
-            posterThumbnail(film.posterURL)
+            posterThumbnail(PosterSize.w185.url(for: film.posterPath))
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(film.title)

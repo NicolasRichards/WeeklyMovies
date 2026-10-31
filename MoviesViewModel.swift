@@ -8,6 +8,11 @@ class MoviesViewModel {
     var movies: [Movie] = []
     var isLoading = false
     var errorMessage: String?
+    /// With `errorMessage`: the refresh failed and `movies` are saved results,
+    /// as opposed to fresh results that are incomplete.
+    var showingSavedResults = false
+    /// The last load was rejected with a 401: the key is invalid or revoked.
+    var apiKeyRejected = false
     var currentWeekOffset = 0
     var filter: MovieFilter = .theatrical
     var wideOnly: Bool = UserDefaults.standard.object(forKey: "wideOnly") as? Bool ?? true {
@@ -70,7 +75,7 @@ class MoviesViewModel {
     func setCountry(_ code: String) {
         countryCode = code
         CacheService.shared.clearCache()
-        Task { await loadMovies(forceRefresh: true) }
+        Task { await loadMovies() }
     }
 
     enum MovieFilter: String, CaseIterable {
@@ -113,43 +118,91 @@ class MoviesViewModel {
     // Incremented on every load; in-flight loads bail out when a newer one starts,
     // so rapid week navigation can't mix two weeks' results or poison the cache.
     private var loadGeneration = 0
+    /// The load in flight, cancelled when a newer one starts so a superseded
+    /// week stops sending requests.
+    private var loadTask: Task<Void, Never>?
+    /// Week start and country that `movies` belongs to; nil until something
+    /// for the current selection has loaded.
+    private var loadedSelection: String?
+    /// The real current week as of the last load, to spot a rollover.
+    private var lastLoadedDuringWeekOf: Date?
 
-    func loadMovies(forceRefresh: Bool = false) async {
-        loadGeneration += 1
-        let generation = loadGeneration
-        let dates = weekDates(for: currentWeekOffset)
-        let pastWeek = currentWeekOffset < 0
+    /// Whether the list for the current week and country is on screen (possibly empty).
+    var hasLoadedSelection: Bool { loadedSelection != nil }
 
-        if !forceRefresh, let cached = CacheService.shared.loadMovies(forWeekStart: dates.start, countryCode: countryCode) {
-            movies = cached
-            // A load already in flight bails out on its generation check without
-            // clearing isLoading, so this newest load has to own the flag even
-            // when it returns early. Otherwise the spinner never goes away.
-            isLoading = false
-            errorMessage = nil
+    /// Always fetches fresh; a cached complete week is shown meanwhile and is
+    /// the fallback if the fetch fails.
+    /// Identifies the week and country a load is for.
+    private var currentSelection: String {
+        "\(weekDates(for: currentWeekOffset).start.timeIntervalSince1970)_\(countryCode)"
+    }
+    private var loadingSelection: String?
+
+    func loadMovies() async {
+        guard KeychainHelper.shared.hasAPIKey else { return }
+        // A refresh while this same week is already loading joins that load
+        // rather than restarting it and throwing away what it has fetched.
+        if isLoading, let loadTask, loadingSelection == currentSelection {
+            await loadTask.value
             return
         }
+        loadingSelection = currentSelection
+        loadGeneration += 1
+        let generation = loadGeneration
+        loadTask?.cancel()
+        // Unstructured, so it's cancelled only by a newer load — not by the
+        // caller's .refreshable or .task going away.
+        let task = Task { await performLoad(generation: generation) }
+        loadTask = task
+        await task.value
+    }
 
+    private func performLoad(generation: Int) async {
+        guard generation == loadGeneration else { return }
+        // Captured once: a country change mid-load must not file this load's
+        // results under the new country's cache.
+        let country = countryCode
+        let dates = weekDates(for: currentWeekOffset)
+        let pastWeek = currentWeekOffset < 0
+        let selection = "\(dates.start.timeIntervalSince1970)_\(country)"
+        lastLoadedDuringWeekOf = weekDates(for: 0).start
+
+        // A refresh keeps the current list up (and its List, whose .refreshable
+        // started this load, mounted) until new results arrive. A different week
+        // or country shows its cached complete week meanwhile, if there is one.
+        if loadedSelection != selection {
+            if let cached = CacheService.shared.loadMovies(forWeekStart: dates.start, countryCode: country) {
+                movies = cached
+                loadedSelection = selection
+            } else {
+                movies = []
+                loadedSelection = nil
+            }
+        }
+        // Only a list started from nothing fills in batch by batch; otherwise
+        // the list on screen is replaced once, when the load finishes.
+        let showsProgressively = loadedSelection == nil
         isLoading = true
         errorMessage = nil
-        movies = []
+        showingSavedResults = false
+        apiKeyRejected = false
 
         do {
             async let theatricalOutcome = fetchOutcome {
                 try await TMDbService.shared.fetchTheatricalReleases(
-                    weekStart: dates.start, weekEnd: dates.end, countryCode: countryCode)
+                    weekStart: dates.start, weekEnd: dates.end, countryCode: country)
             }
             async let streamingOutcome = fetchOutcome {
                 try await TMDbService.shared.fetchStreamingReleases(
-                    weekStart: dates.start, weekEnd: dates.end, countryCode: countryCode)
+                    weekStart: dates.start, weekEnd: dates.end, countryCode: country)
             }
 
             // Each fetch's outcome is captured independently so one failing
-            // doesn't discard a result the other already completed — unless
-            // that failure is a cancellation, which always propagates rather
-            // than being treated as a tolerable partial failure.
+            // doesn't discard a result the other already completed. Only this
+            // load's own cancellation (the check below) abandons both.
             let (theatricalResult, streamingResult) = await (theatricalOutcome, streamingOutcome)
             guard generation == loadGeneration else { return }
+            try Task.checkCancellation()
 
             let theatricalResults: [TMDbMovieResult]
             let streamingResults: [TMDbMovieResult]
@@ -158,19 +211,18 @@ class MoviesViewModel {
             // so a missing category (e.g. every streaming-only release) isn't
             // silently absent with no explanation.
             var listFetchError: Error?
+            var failedListName = ""
             switch (theatricalResult, streamingResult) {
-            case (.failure(let error), _) where error is CancellationError:
-                throw error
-            case (_, .failure(let error)) where error is CancellationError:
-                throw error
             case (.success(let t), .success(let s)):
                 (theatricalResults, streamingResults) = (t, s)
             case (.success(let t), .failure(let error)):
                 (theatricalResults, streamingResults) = (t, [])
                 listFetchError = error
+                failedListName = "Streaming"
             case (.failure(let error), .success(let s)):
                 (theatricalResults, streamingResults) = ([], s)
                 listFetchError = error
+                failedListName = "Theatrical"
             case (.failure(let error), .failure):
                 throw error
             }
@@ -218,9 +270,14 @@ class MoviesViewModel {
             // gap *between* batches: a week with several batches of fast-returning
             // requests could burst well past 40 req/10s and get rate-limited.
             let batches = allEntries.chunked(into: 8)
+            var loaded: [Movie] = []
             var detailFetchFailures = 0
-            var lastDetailFetchError: Error?
+            var firstDetailFetchError: Error?
             for (batchIndex, batch) in batches.enumerated() {
+                // Checked before every batch (i.e. after each 2s sleep), so a
+                // superseded load never sends another round of requests.
+                guard generation == loadGeneration else { return }
+                try Task.checkCancellation()
                 let (batchDetails, batchOutcomes) = await withTaskGroup(
                     of: Result<(TMDbMovieDetails, Bool), Error>.self
                 ) { group in
@@ -251,8 +308,8 @@ class MoviesViewModel {
                 try Task.checkCancellation()
                 detailFetchFailures += batch.count - batchDetails.count
                 for outcome in batchOutcomes {
-                    if case .failure(let error) = outcome, !(error is CancellationError), lastDetailFetchError == nil {
-                        lastDetailFetchError = error
+                    if case .failure(let error) = outcome, firstDetailFetchError == nil {
+                        firstDetailFetchError = error
                     }
                 }
                 // Two-pass filter:
@@ -270,7 +327,7 @@ class MoviesViewModel {
                     // using the minimum date would drop movies that had a premiere
                     // the week before their wide theatrical release.
                     // Fall back to global primary release date if no country entry exists.
-                    let inWindow = details.hasRelease(for: countryCode, from: windowStart, to: weekEnd1Day)
+                    let inWindow = details.releaseDate(for: country, in: windowStart, to: weekEnd1Day) != nil
                         || primaryDateFmt.date(from: details.releaseDate).map { $0 >= windowStart && $0 < weekEnd1Day } ?? false
                     guard inWindow else { return false }
                     // For past weeks, require the global primary release to be recent
@@ -284,14 +341,14 @@ class MoviesViewModel {
                 let newMovies = firstReleaseThisWeek.map { (details, isTheatrical) in
                     details.toMovie(
                         isTheatrical: isTheatrical,
-                        isWideRelease: details.hasWideRelease(for: countryCode, from: windowStart, to: weekEnd1Day),
-                        countryCode: countryCode,
+                        isWideRelease: details.hasWideRelease(for: country, from: windowStart, to: weekEnd1Day),
+                        countryCode: country,
                         weekStart: windowStart,
                         weekEnd: weekEnd1Day
                     )
                 }
-                // Append each batch immediately so the list populates progressively.
-                movies = (movies + newMovies).sorted { $0.voteCount > $1.voteCount }
+                loaded = (loaded + newMovies).sorted { $0.voteCount > $1.voteCount }
+                if showsProgressively && !loaded.isEmpty { movies = loaded }
 
                 if batchIndex < batches.count - 1 {
                     try await Task.sleep(nanoseconds: 2_000_000_000) // 2s between batches
@@ -299,46 +356,74 @@ class MoviesViewModel {
             }
 
             // Every single detail fetch failed (e.g. the connection dropped
-            // mid-load) — don't let an empty list read as "no releases this week"
-            // with no explanation, and don't let it overwrite a previously-good
-            // cache with this empty result either.
-            let totalFailure = !allEntries.isEmpty && detailFetchFailures == allEntries.count
-            if !totalFailure {
-                CacheService.shared.saveMovies(movies, forWeekStart: dates.start, countryCode: countryCode)
+            // mid-load) — don't let an empty list read as "no releases this
+            // week"; fall back to saved results like any other failed refresh.
+            if let firstDetailFetchError, detailFetchFailures == allEntries.count {
+                throw firstDetailFetchError
             }
-            if totalFailure {
-                errorMessage = lastDetailFetchError?.localizedDescription
-                    ?? "Couldn't load this week's movies. Please try again."
-            } else if detailFetchFailures > 0 {
-                // A partial failure used to be completely silent, with the
-                // incomplete list cached and shown as if the week were complete.
-                errorMessage = "Showing \(movies.count) of \(allEntries.count) movies — some failed to load."
-            } else if let listFetchError {
-                errorMessage = listFetchError.localizedDescription
+
+            movies = loaded
+            loadedSelection = selection
+            if detailFetchFailures == 0 && listFetchError == nil {
+                // Only complete results are cached, so a fallback never passes
+                // an incomplete week off as complete.
+                CacheService.shared.saveMovies(loaded, forWeekStart: dates.start, countryCode: country)
+            } else {
+                var problems: [String] = []
+                if let listFetchError {
+                    problems.append("\(failedListName) releases couldn't load. \(Self.message(for: listFetchError))")
+                }
+                if detailFetchFailures > 0 {
+                    // Counted on the same basis: movies whose details were fetched, before filtering.
+                    problems.append("\(detailFetchFailures) of \(allEntries.count) movies couldn't load.")
+                }
+                errorMessage = problems.joined(separator: " ")
+                apiKeyRejected = [listFetchError, firstDetailFetchError].contains { $0.map(Self.isUnauthorized) ?? false }
             }
 
         } catch {
             guard generation == loadGeneration else { return }
-            // A forced refresh's own `movies = []` above can tear down the view
-            // hosting the in-flight .refreshable/.task that started this very
-            // load, cancelling it — that's benign and shouldn't read as a
-            // real failure the way a genuine network error should.
-            if error is CancellationError {
-                if generation == loadGeneration { isLoading = false }
+            // Only this task's own cancellation is benign; a URLError(.cancelled)
+            // that arrives without it is reported like any other failure.
+            if Task.isCancelled {
+                isLoading = false
                 return
             }
-            errorMessage = error.localizedDescription
-            // Fall back to a stale cache so the screen isn't empty, but keep
-            // errorMessage set — ContentView shows it as a small "offline" banner
-            // over the list rather than presenting old data as if it just loaded.
-            if let cached = CacheService.shared.loadMovies(forWeekStart: dates.start, countryCode: countryCode) {
+            errorMessage = Self.message(for: error)
+            apiKeyRejected = Self.isUnauthorized(error)
+            // Fall back to the cache, else the list already on screen for this
+            // week, flagged as saved results rather than passed off as fresh.
+            if let cached = CacheService.shared.loadMovies(forWeekStart: dates.start, countryCode: country) {
                 movies = cached
             }
+            showingSavedResults = !movies.isEmpty
+            loadedSelection = movies.isEmpty ? nil : selection
         }
 
         if generation == loadGeneration {
             isLoading = false
         }
+    }
+
+    /// On returning to the foreground: the week shown is relative to today, so
+    /// reload once the real week has rolled over since the last load.
+    func reloadIfWeekRolledOver() {
+        guard let lastLoadedDuringWeekOf,
+              weekDates(for: 0).start != lastLoadedDuringWeekOf,
+              KeychainHelper.shared.hasAPIKey else { return }
+        Task { await loadMovies() }
+    }
+
+    /// The API key was removed: stop any load in flight and clear the list.
+    func clearForMissingKey() {
+        loadGeneration += 1
+        loadTask?.cancel()
+        movies = []
+        loadedSelection = nil
+        isLoading = false
+        errorMessage = nil
+        showingSavedResults = false
+        apiKeyRejected = false
     }
 
     func goToPreviousWeek() {
@@ -358,6 +443,18 @@ class MoviesViewModel {
     }
 
     // MARK: - Helpers
+
+    /// URLError(.cancelled)'s own description is just "cancelled".
+    private static func message(for error: Error) -> String {
+        if error is CancellationError || (error as? URLError)?.code == .cancelled {
+            return "Loading was interrupted. Please try again."
+        }
+        return error.localizedDescription
+    }
+
+    private static func isUnauthorized(_ error: Error) -> Bool {
+        (error as? TMDbError) == .unauthorized
+    }
 
     private func fetchOutcome<T>(_ operation: @Sendable () async throws -> T) async -> Result<T, Error> {
         do { return .success(try await operation()) }

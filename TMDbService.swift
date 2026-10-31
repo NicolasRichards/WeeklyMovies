@@ -99,7 +99,7 @@ class TMDbService {
     }
 }
 
-enum TMDbError: LocalizedError {
+enum TMDbError: LocalizedError, Equatable {
     case invalidResponse
     case unauthorized
     case rateLimited

@@ -79,27 +79,50 @@ struct AboutView: View {
                 Text("☕ Buy us a coffee?")
                     .font(.headline)
 
+                // Ask to Buy: StoreKit says nothing if the parent declines, so the
+                // tip buttons stay available under this note.
+                if tipJar.awaitingApproval && !tipJar.didTip {
+                    Text("Waiting for approval. Thank you!")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 if tipJar.didTip {
                     Text("Thank you so much. 💛")
                         .font(.subheadline)
                         .foregroundStyle(.tint)
                         .padding(.vertical, 8)
-                } else if tipJar.awaitingApproval {
-                    Text("Waiting for approval. Thank you!")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                } else if tipJar.loadFailed {
-                    Text("Tip options couldn't load right now.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                } else if tipJar.products.isEmpty {
-                    ProgressView()
-                        .padding(.vertical, 12)
                 } else {
-                    ForEach(tipJar.products, id: \.id) { product in
-                        tipRow(reels: reelCount(for: product), product: product)
+                    if tipJar.products.isEmpty {
+                        if tipJar.loadFailed {
+                            Text("Tip options couldn't load right now.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 8)
+                        } else {
+                            ProgressView()
+                                .padding(.vertical, 12)
+                        }
+                    } else {
+                        ForEach(tipJar.products, id: \.id) { product in
+                            tipRow(reels: reelCount(for: product), product: product)
+                        }
+                    }
+
+                    if tipJar.loadFailed {
+                        Button(tipJar.products.isEmpty ? "Retry" : "Some tip options didn't load. Retry") {
+                            Task { await tipJar.load() }
+                        }
+                        .font(.footnote)
+                        .buttonStyle(.bordered)
+                        .disabled(tipJar.isLoading)
+                    }
+
+                    if tipJar.purchaseFailed {
+                        Text("That purchase couldn't be completed.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
                 }
             }

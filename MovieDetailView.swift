@@ -47,7 +47,7 @@ struct MovieDetailView: View {
     // MARK: - Sections
 
     private var heroImage: some View {
-        AsyncImage(url: movie.posterURL) { image in
+        AsyncImage(url: PosterSize.w500.url(for: movie.posterPath)) { image in
             image
                 .resizable()
                 .aspectRatio(contentMode: .fill)

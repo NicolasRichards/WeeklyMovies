@@ -30,6 +30,16 @@ extension String {
 
 // MARK: - App Models
 
+/// TMDb poster widths, each the smallest that covers its view at 3x.
+enum PosterSize: String {
+    case w185, w342, w500
+
+    func url(for path: String?) -> URL? {
+        guard let path else { return nil }
+        return URL(string: "https://image.tmdb.org/t/p/\(rawValue)\(path)")
+    }
+}
+
 struct Movie: Identifiable, Codable, Equatable {
     let id: Int
     let title: String
@@ -46,11 +56,6 @@ struct Movie: Identifiable, Codable, Equatable {
     var director: String?
     var cast: [String]
     var trailerKey: String?
-
-    var posterURL: URL? {
-        guard let path = posterPath else { return nil }
-        return URL(string: "https://image.tmdb.org/t/p/w500\(path)")
-    }
 
     var imdbURL: URL? {
         if let id = imdbID, !id.isEmpty {
@@ -162,44 +167,18 @@ struct TMDbMovieDetails: Codable {
 
     /// Returns true if the movie has a wide (type 3) release in the given country within [start, end).
     func hasWideRelease(for countryCode: String, from start: Date, to end: Date) -> Bool {
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let fallback = ISO8601DateFormatter()
-        fallback.formatOptions = [.withInternetDateTime]
-        func parse(_ s: String) -> Date? { isoFormatter.date(from: s) ?? fallback.date(from: s) }
-
         guard let entries = releaseDates?.results
             .first(where: { $0.iso31661 == countryCode })?.releaseDates else { return false }
-        return entries.contains { $0.type == 3 && parse($0.releaseDate).map { $0 >= start && $0 < end } ?? false }
+        return entries.contains { $0.type == 3 && TMDbTimestamp.parse($0.releaseDate).map { $0 >= start && $0 < end } ?? false }
     }
 
-    /// Returns true if the movie has any release in the given country within [start, end).
-    func hasRelease(for countryCode: String, from start: Date, to end: Date) -> Bool {
-        // TMDb timestamps look like "2015-12-25T00:00:00.000Z" — fractional seconds
-        // are NOT handled by ISO8601DateFormatter's default options, so we add them.
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let fallback = ISO8601DateFormatter()
-        fallback.formatOptions = [.withInternetDateTime]
-        func parse(_ s: String) -> Date? { isoFormatter.date(from: s) ?? fallback.date(from: s) }
-
-        guard let entries = releaseDates?.results
-            .first(where: { $0.iso31661 == countryCode })?.releaseDates else { return false }
-        return entries.compactMap { parse($0.releaseDate) }.contains { $0 >= start && $0 < end }
-    }
-
-    /// Returns the earliest release date within [start, end) for the given country.
+    /// Returns the earliest release date within [start, end) for the given
+    /// country, or nil if it has no release in that window.
     func releaseDate(for countryCode: String, in start: Date, to end: Date) -> Date? {
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let fallback = ISO8601DateFormatter()
-        fallback.formatOptions = [.withInternetDateTime]
-        func parse(_ s: String) -> Date? { isoFormatter.date(from: s) ?? fallback.date(from: s) }
-
-        return releaseDates?.results
+        releaseDates?.results
             .first(where: { $0.iso31661 == countryCode })?
             .releaseDates
-            .compactMap { parse($0.releaseDate) }
+            .compactMap { TMDbTimestamp.parse($0.releaseDate) }
             .filter { $0 >= start && $0 < end }
             .min()
     }
@@ -239,14 +218,6 @@ struct TMDbMovieDetails: Codable {
             )
         }
 
-        // TMDb timestamps look like "2015-12-25T00:00:00.000Z" — fractional
-        // seconds aren't handled by ISO8601DateFormatter's default options, so
-        // fall back to a fractional-seconds-aware formatter first, same pattern
-        // as hasRelease/releaseDate/hasWideRelease above.
-        let reviewDateFormatter = ISO8601DateFormatter()
-        reviewDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let reviewDateFallbackFormatter = ISO8601DateFormatter()
-        reviewDateFallbackFormatter.formatOptions = [.withInternetDateTime]
         let movieReviews: [Review] = (reviews?.results ?? []).map { r in
             Review(
                 id: r.id,
@@ -254,9 +225,7 @@ struct TMDbMovieDetails: Codable {
                 content: r.content,
                 rating: r.authorDetails?.rating,
                 url: r.url,
-                createdAt: reviewDateFormatter.date(from: r.createdAt)
-                    ?? reviewDateFallbackFormatter.date(from: r.createdAt)
-                    ?? Date()
+                createdAt: TMDbTimestamp.parse(r.createdAt) ?? Date()
             )
         }
 
@@ -277,6 +246,26 @@ struct TMDbMovieDetails: Codable {
             cast: cast,
             trailerKey: trailerKey
         )
+    }
+}
+
+/// Parses TMDb timestamps such as "2015-12-25T00:00:00.000Z" (fractional
+/// seconds need their own options, so that's tried first, then plain).
+/// Shared formatters: building them per call made ~1,600 per busy week.
+enum TMDbTimestamp {
+    private static let fractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let plain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    static func parse(_ string: String) -> Date? {
+        fractional.date(from: string) ?? plain.date(from: string)
     }
 }
 

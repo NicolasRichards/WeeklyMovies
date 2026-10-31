@@ -3,9 +3,11 @@ import SwiftUI
 struct APIKeySetupView: View {
     @Binding var isPresented: Bool
     let onSave: () -> Void
+    let onRemove: () -> Void
 
     @State private var apiKey = ""
     @State private var validationState: ValidationState = .idle
+    @State private var hasSavedKey = KeychainHelper.shared.hasAPIKey
 
     private let tmdbAPIURL = URL(string: "https://www.themoviedb.org/settings/api")!
     private let tmdbSignupURL = URL(string: "https://www.themoviedb.org/signup")!
@@ -31,13 +33,16 @@ struct APIKeySetupView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                if KeychainHelper.shared.hasAPIKey {
+                if hasSavedKey {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { isPresented = false }
                     }
                 }
             }
         }
+        // With no key saved (first run, or just removed) swiping the sheet away
+        // would leave an empty screen, so block interactive dismissal until one is.
+        .interactiveDismissDisabled(!hasSavedKey)
         #if os(iOS)
         .presentationDetents([.large])
         #endif
@@ -172,10 +177,14 @@ struct APIKeySetupView: View {
             .controlSize(.large)
             .disabled(!canSubmit)
 
-            if KeychainHelper.shared.hasAPIKey {
+            if hasSavedKey {
                 Button(role: .destructive) {
                     KeychainHelper.shared.deleteAPIKey()
-                    isPresented = false
+                    // Stay open as on first run: the app can't load anything without a key
+                    hasSavedKey = false
+                    apiKey = ""
+                    validationState = .idle
+                    onRemove()
                 } label: {
                     Text("Remove Saved Key")
                 }
@@ -202,8 +211,12 @@ struct APIKeySetupView: View {
         validationState = .validating
         do {
             try await TMDbService.shared.validateAPIKey(trimmed)
+            guard KeychainHelper.shared.saveAPIKey(trimmed) else {
+                validationState = .invalid("Couldn't save the key to your Keychain. Please try again.")
+                return
+            }
+            hasSavedKey = true
             validationState = .valid
-            KeychainHelper.shared.saveAPIKey(trimmed)
             try? await Task.sleep(nanoseconds: 600_000_000)
             isPresented = false
             onSave()

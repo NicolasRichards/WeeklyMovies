@@ -30,7 +30,7 @@ struct MovieCardView: View {
     }
 
     private var posterImage: some View {
-        AsyncImage(url: movie.posterURL) { image in
+        AsyncImage(url: PosterSize.w342.url(for: movie.posterPath)) { image in
             image
                 .resizable()
                 .aspectRatio(contentMode: .fill)
