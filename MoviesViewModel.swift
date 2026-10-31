@@ -183,17 +183,26 @@ class MoviesViewModel {
             let allEntries = Array(movieMap.values)
 
             // Pre-compute date bounds used in the per-batch filter.
-            let weekEnd1Day = Calendar.current.date(byAdding: .day, value: 1, to: dates.end)!
+            // TMDb release dates are midnight UTC, so the window must sit on the
+            // UTC grid too: rebuild the displayed week's local calendar days as
+            // UTC midnights. (Comparing against local-midnight bounds dropped
+            // Monday releases west of UTC and let the next Monday slip in.)
+            var utcCalendar = Calendar(identifier: .gregorian)
+            utcCalendar.timeZone = TimeZone(identifier: "UTC")!
+            func utcMidnight(ofLocalDay day: Date) -> Date {
+                let c = Calendar.current.dateComponents([.year, .month, .day], from: day)
+                return utcCalendar.date(from: c)!
+            }
+            let windowStart = utcMidnight(ofLocalDay: dates.start)
+            let weekEnd1Day = utcCalendar.date(byAdding: .day, value: 1, to: utcMidnight(ofLocalDay: dates.end))!
             // Secondary staleness guard: TMDb's release_dates data is incomplete
             // for smaller markets, so old movies can appear if their only recorded
             // country entry is a recent re-release. Requiring the movie's global
             // primary release to be within the past month blocks those false positives
             // while still allowing legitimate delayed international rollouts.
             let oneMonthAgo = Calendar.current.date(byAdding: .month, value: -1, to: Date())!
-            // No explicit time zone: this is compared against dates.start/weekEnd1Day,
-            // which are themselves device-local-midnight values, so it must stay
-            // on the device default to match that grid.
-            let primaryDateFmt = DateFormatter.tmdbDateOnly()
+            // UTC, to match the window bounds above.
+            let primaryDateFmt = DateFormatter.tmdbDateOnly(timeZone: TimeZone(identifier: "UTC")!)
 
             // Fetch details in batches to stay under the 40 req/10s rate limit.
             // Task group returns raw TMDbMovieDetails; toMovie() is called after
@@ -261,8 +270,8 @@ class MoviesViewModel {
                     // using the minimum date would drop movies that had a premiere
                     // the week before their wide theatrical release.
                     // Fall back to global primary release date if no country entry exists.
-                    let inWindow = details.hasRelease(for: countryCode, from: dates.start, to: weekEnd1Day)
-                        || primaryDateFmt.date(from: details.releaseDate).map { $0 >= dates.start && $0 < weekEnd1Day } ?? false
+                    let inWindow = details.hasRelease(for: countryCode, from: windowStart, to: weekEnd1Day)
+                        || primaryDateFmt.date(from: details.releaseDate).map { $0 >= windowStart && $0 < weekEnd1Day } ?? false
                     guard inWindow else { return false }
                     // For past weeks, require the global primary release to be recent
                     // to block old movies with sparse re-release data slipping through.
@@ -275,9 +284,9 @@ class MoviesViewModel {
                 let newMovies = firstReleaseThisWeek.map { (details, isTheatrical) in
                     details.toMovie(
                         isTheatrical: isTheatrical,
-                        isWideRelease: details.hasWideRelease(for: countryCode, from: dates.start, to: weekEnd1Day),
+                        isWideRelease: details.hasWideRelease(for: countryCode, from: windowStart, to: weekEnd1Day),
                         countryCode: countryCode,
-                        weekStart: dates.start,
+                        weekStart: windowStart,
                         weekEnd: weekEnd1Day
                     )
                 }

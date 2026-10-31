@@ -18,6 +18,16 @@ extension DateFormatter {
     }
 }
 
+extension String {
+    /// Percent-encodes for use as a single URL query value. `.urlQueryAllowed`
+    /// leaves "&", "+" and "=" alone, which would split or garble the query.
+    var queryValueEncoded: String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=#")
+        return addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+    }
+}
+
 // MARK: - App Models
 
 struct Movie: Identifiable, Codable, Equatable {
@@ -48,7 +58,7 @@ struct Movie: Identifiable, Codable, Equatable {
         }
         // TMDb sometimes hasn't linked the IMDB ID yet for new releases —
         // fall back to a title search so the link always works.
-        let query = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let query = title.queryValueEncoded
         return URL(string: "https://www.imdb.com/find?q=\(query)&s=tt&ttype=ft")
     }
 

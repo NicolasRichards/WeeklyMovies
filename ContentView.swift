@@ -222,7 +222,7 @@ struct ContentView: View {
             utcCalendar.timeZone = TimeZone(identifier: "UTC")!
             let year = utcCalendar.component(.year, from: movie.releaseDate)
             let query = "\(movie.title) \(year) movie tickets"
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            let encoded = query.queryValueEncoded
             if let url = URL(string: "https://www.google.com/search?q=\(encoded)") {
                 openURL(url)
             }
