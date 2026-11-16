@@ -3,11 +3,25 @@ import SwiftUI
 struct MyFilmsView: View {
     @State private var store = WatchlistStore.shared
     @State private var selectedTab: FilmTab = .watchlist
-    @State private var filmToRate: UserFilm?
+    @State private var ratingTarget: RatingTarget?
 
     enum FilmTab: String, CaseIterable {
         case watchlist = "Watchlist"
         case seen = "Seen"
+    }
+
+    /// One sheet serves both jobs: re-rating a seen film, and rating a
+    /// watchlisted film as it moves to Seen.
+    enum RatingTarget: Identifiable {
+        case rerate(UserFilm)
+        case markSeen(UserFilm)
+
+        var id: String {
+            switch self {
+            case .rerate(let film): "rerate-\(film.id)"
+            case .markSeen(let film): "seen-\(film.id)"
+            }
+        }
     }
 
     var body: some View {
@@ -30,13 +44,23 @@ struct MyFilmsView: View {
                 }
             }
         }
-        .sheet(item: $filmToRate) { film in
-            RateFilmSheet(title: film.title, initialRating: film.personalRating) { rating in
-                // Skip (nil) leaves the existing rating alone; 0 clears it
-                if let rating {
-                    store.updateRating(id: film.id, rating: rating == 0 ? nil : rating)
+        .sheet(item: $ratingTarget) { target in
+            switch target {
+            case .rerate(let film):
+                RateFilmSheet(title: film.title, initialRating: film.personalRating) { rating in
+                    // Skip (nil) leaves the existing rating alone; 0 clears it
+                    if let rating {
+                        store.updateRating(id: film.id, rating: rating == 0 ? nil : rating)
+                    }
+                    ratingTarget = nil
                 }
-                filmToRate = nil
+            case .markSeen(let film):
+                // Same as marking seen from This Week: Skip moves it unrated.
+                // Swiping the sheet away cancels and leaves it on the watchlist.
+                RateFilmSheet(title: film.title) { rating in
+                    store.markSeen(film, rating: rating)
+                    ratingTarget = nil
+                }
             }
         }
     }
@@ -57,6 +81,12 @@ struct MyFilmsView: View {
                                 } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
+                                Button {
+                                    ratingTarget = .markSeen(film)
+                                } label: {
+                                    Label("Seen", systemImage: "checkmark.circle.fill")
+                                }
+                                .tint(.green)
                             }
                     }
                 }
@@ -123,7 +153,7 @@ struct MyFilmsView: View {
                 }
 
                 StarRatingView(rating: film.personalRating) {
-                    filmToRate = film
+                    ratingTarget = .rerate(film)
                 }
             }
         }

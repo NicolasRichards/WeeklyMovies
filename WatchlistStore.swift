@@ -53,17 +53,27 @@ class WatchlistStore {
     }
 
     func markSeen(_ movie: Movie, rating: Int?) {
-        if isInWatchlist(movie.id) {
-            watchlist.removeAll { $0.id == movie.id }
+        markSeen(id: movie.id, title: movie.title, posterPath: movie.posterPath, rating: rating)
+    }
+
+    /// Moves a watchlisted film to Seen from the My Films tab, where only the
+    /// saved `UserFilm` is at hand, not the week's `Movie`.
+    func markSeen(_ film: UserFilm, rating: Int?) {
+        markSeen(id: film.id, title: film.title, posterPath: film.posterPath, rating: rating)
+    }
+
+    private func markSeen(id: Int, title: String, posterPath: String?, rating: Int?) {
+        if isInWatchlist(id) {
+            watchlist.removeAll { $0.id == id }
             saveWatchlist()
         }
-        if !isInSeen(movie.id) {
-            seenList.insert(UserFilm(id: movie.id, title: movie.title,
-                                     posterPath: movie.posterPath, dateAdded: Date(),
+        if !isInSeen(id) {
+            seenList.insert(UserFilm(id: id, title: title,
+                                     posterPath: posterPath, dateAdded: Date(),
                                      seenDate: Date(), personalRating: rating), at: 0)
             saveSeenList()
         } else if let rating {
-            updateRating(id: movie.id, rating: rating)
+            updateRating(id: id, rating: rating)
         }
     }
 
